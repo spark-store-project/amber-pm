@@ -34,6 +34,8 @@ debug_info() {
     echo "Bash Version: ${BASH_VERSION}"
     echo "APT Version: $(apt --version | head -n1)"
     echo "====================================="
+
+## 这里加上chroot进入apm
 }
 
 # 彩蛋函数

@@ -4,7 +4,7 @@ sudo mount -t overlay  overlay   -o lowerdir='/var/lib/apm/amber-pm-trixie/files
 
 core: 保存新增文件
 work: 保存变更信息
-需把这两个文件的权限换成755
+需把这两个目录重新拥有并权限换成755
 
 
 fuse-overlayfs -o lowerdir='/var/lib/apm/amber-pm-trixie/files/ace-env',upperdir=core/,workdir=work/ ./ace-env
