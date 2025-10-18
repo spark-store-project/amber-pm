@@ -2,7 +2,7 @@
 
 
 
-chrootEnvPath=$(pwd)/ace-env
+chrootEnvPath="${chrootEnvPath:-$(pwd)/ace-env}"
 
 
 
