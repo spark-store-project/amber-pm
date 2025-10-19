@@ -1,0 +1,9 @@
+Package: apm
+Version: 1.0
+Maintainer: shenmo <jifengshenmo@outlook.com>
+Priority: optional
+Section: utils
+Installed-Size: 36
+Description: A empty package to satisfy depends
+Architecture: all
+Homepage: https://shenmo7192.gitee.io/
