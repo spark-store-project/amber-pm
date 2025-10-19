@@ -6,6 +6,8 @@
 
 添加 gxde fixer 确保在GXDE下可以正常展示应用（即进行一次host integration类操作)
 
+完善 amber-pm-common 以快速创建rootfs(普通rootfs + 生成所有 locales + 安装 store.spark-app.app-runtime-base)
+
 4. apm 内置 ubuntu rootfs的修改如下
 
 * 使用支持apm源的aptss，使用独立的sources.list.d（暂未实现）
