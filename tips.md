@@ -8,6 +8,13 @@
 
 完善 amber-pm-common 以快速创建rootfs(普通rootfs + 生成所有 locales + 安装 store.spark-app.app-runtime-base)
 
+* 完成三架构软件源配置
+* deb全自动转apm
+* apm版融合商店
+* 修改aptss以兼容APM源加速
+* 类似 Wine 运行器的方式全图形化傻瓜式打包
+* 自动融合 APM 应用到系统主机，并实现右键卸载
+
 4. apm 内置 ubuntu rootfs的修改如下
 
 * 使用支持apm源的aptss，使用独立的sources.list.d（暂未实现）
