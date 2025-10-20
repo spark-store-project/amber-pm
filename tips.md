@@ -19,8 +19,8 @@
 
 
 
-完善 amber-pm-common 以快速创建rootfs(生成所有 locales )
-
+* 完善 amber-pm-common 以快速创建rootfs(生成所有 locales )
+* apm 自动刷新 apm 仓库
 * 重要：如何在APM内更新内容——如何覆盖？
 * deb全自动转apm
 * apm版融合商店
