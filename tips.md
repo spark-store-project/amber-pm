@@ -17,8 +17,7 @@
 
 4. apm 内置 ubuntu rootfs的修改如下
 
-* 使用支持apm源的aptss，使用独立的sources.list.d（暂未实现）
-* 添加应用列表到系统环境变量（暂未实现）
+* 使用支持apm源的aptss，使用独立的sources.list.d
 * 安装xz-utils
 * 安装一个空的apm包，用于填充依赖，附带 amber-pm-dstore-patch
 
