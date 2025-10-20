@@ -41,4 +41,4 @@ spec（对于APM内的包）：
 /var/lib/apm/包名/entries是desktop位置，后续会加到自动展示中
 
 
-
+core的依赖需要写base
