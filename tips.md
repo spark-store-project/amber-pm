@@ -21,7 +21,7 @@
 
 完善 amber-pm-common 以快速创建rootfs(生成所有 locales )
 
-
+* 重要：如何在APM内更新内容——如何覆盖？
 * deb全自动转apm
 * apm版融合商店
 * 类似 Wine 运行器的方式全图形化傻瓜式打包
