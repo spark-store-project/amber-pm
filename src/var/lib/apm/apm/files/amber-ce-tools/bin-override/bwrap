@@ -1,0 +1,2 @@
+#!/bin/bash
+host-spawn /var/lib/apm/apm/files/bin/ace-run-bwrap "$@"

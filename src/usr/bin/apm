@@ -1,0 +1,173 @@
+#!/bin/bash
+VERSION=1.0.5
+# 获取脚本名称用于帮助信息
+SCRIPT_NAME=$(basename "$0")
+PATH_PREFIX=/var/lib/apm/apm/files/ace-env/
+
+log.warn() { echo -e "[\e[33mWARN\e[0m]:  \e[1m$*\e[0m"; }
+log.error()  { echo -e "[\e[31mERROR\e[0m]: \e[1m$*\e[0m"; }
+log.info() { echo -e "[\e[96mINFO\e[0m]:  \e[1m$*\e[0m"; }
+log.debug()  { echo -e "[\e[32mDEBUG\e[0m]: \e[1m$*\e[0m"; }
+
+# 帮助信息函数
+show_help() {
+    cat <<EOF
+APM - Amber Package Manager ${VERSION}
+
+Usage:
+  $SCRIPT_NAME [COMMAND] [OPTIONS] [PACKAGES...]
+
+Commands:
+  install      安装软件包
+  remove       卸载软件包
+  update       更新软件包信息
+  autoremove   自动移除不需要的包
+  full-upgrade 完全升级软件包
+  run <package> 运行指定软件包的可执行文件
+  ssaudit <path> 使用 ssaudit 进行软件安装，详情见 spark-store
+  debug        显示调试系统信息
+  -h, --help   显示此帮助信息
+  --amber      彩蛋功能
+
+EOF
+}
+
+apm_exec(){
+mkdir -p /tmp/apm/${coredir}
+fuse-overlayfs -o lowerdir="${PATH_PREFIX}/var/lib/apm/${basedir}/files/ace-env",upperdir="${PATH_PREFIX}/var/lib/apm/${coredir}/files/core/",workdir="${PATH_PREFIX}/var/lib/apm/${coredir}/files/work/" "/tmp/apm/${coredir}"
+
+chrootEnvPath=/tmp/apm/${coredir} /var/lib/apm/apm/files/ace-run "$@"
+umount /tmp/apm/${coredir}
+
+}
+
+# 调试信息函数
+debug_info() {
+    log.debug "======= APM Debug Information ======="
+    log.debug "User: $(whoami)"
+    log.debug "Hostname: $(hostname)"
+    log.debug "OS: $(lsb_release -ds 2>/dev/null || uname -om)"
+    log.debug "Kernel: $(uname -sr)"
+    log.debug "Bash Version: ${BASH_VERSION}"
+    log.debug "APT Version: $(apt --version | head -n1)"
+    log.debug "APM APT Version: $(amber-pm-debug apt --version | head -n1)"
+    log.debug "====================================="
+
+amber-pm-debug "$@"
+
+}
+
+# 彩蛋函数
+amber_egg() {
+    cat <<'EOF'
+
+    ____                            ____                         
+   / __ )____ __________  ____     / __ )__  ______  ____  __  __
+  / __  / __ `/ ___/ __ \/ __ \   / __  / / / / __ \/ __ \/ / / /
+ / /_/ / /_/ / /  / /_/ / / / /  / /_/ / /_/ / / / / / / / /_/ / 
+/_____/\__,_/_/   \____/_/ /_/  /_____/\__,_/_/ /_/_/ /_/\__, /  
+                                                        /____/   
+
+Amber Package Manager - Sparkling with magic!
+💎 Another target tracked down by Outrider Amber!
+EOF
+}
+
+apm-nvidia-toggle(){
+
+# APM 基础路径
+APM_BASE="${PATH_PREFIX}/var/lib/apm"
+
+# 检查基础目录是否存在
+if [[ ! -d "$APM_BASE" ]]; then
+    echo "错误: 目录 $APM_BASE 不存在"
+    exit 1
+fi
+
+# 遍历 /var/lib/apm 下的所有目录
+for dir in "$APM_BASE"/*/; do
+    # 移除末尾的斜杠得到纯目录名
+    dir="${dir%/}"
+    
+    # 提取目录名（不包括完整路径）
+    dirname=$(basename "$dir")
+    # 检查目标文件是否存在
+    target_file="${APM_BASE}/${dirname}/files/ace-env"
+    if [[ -e "$target_file" ]]; then
+        
+        # 将目录传递给 amber-pm-configure-nvidia
+        amber-pm-configure-nvidia "$target_file"
+        
+
+    fi
+done
+}
+# 主命令处理
+case "$1" in
+    install|full-upgrade|upgrade|reinstall)
+    command=$1
+    shift
+    amber-pm-debug aptss "$command" "$@"
+    apm-nvidia-toggle
+    ;;
+   remove|autoremove|search|policy|list|update)
+        # 特殊APT命令：移除第一个参数后传递其余参数
+        command=$1
+        shift
+        amber-pm-debug aptss "$command" "$@"
+        ;;
+   run)
+        # 运行包命令：第二个参数必须是包名
+        if [ -z "$2" ]; then
+            log.error "Package name required for 'run' command"
+            show_help
+            exit 1
+        fi
+        
+        # 检查包是否已安装
+        pkg="$2"
+        shift 2  # 移除 'run' 和包名
+        
+        if ! ls "${PATH_PREFIX}/var/lib/apm/$pkg" >/dev/null 2>&1; then
+        # 如果带前缀的目录不存在，尝试不带前缀的目录
+            if ls "/var/lib/apm/$pkg" >/dev/null 2>&1; then
+                # 如果不带前缀的目录存在，清空 PATH_PREFIX
+                PATH_PREFIX=""
+            else
+                # 如果两个目录都不存在，报错退出
+                log.error "Package not installed: $pkg"
+                exit 1
+            fi
+        fi
+        
+        coredir=$pkg
+        basedir=$(cat ${PATH_PREFIX}/var/lib/apm/${coredir}/info)
+
+
+        # 检测是否有额外命令参数
+        if [ $# -gt 0 ]; then
+            # 有额外参数：执行用户提供的命令
+            log.info "Running user command: $*"
+            apm_exec "$@"
+        else
+            # 没有额外参数：提示
+            log.info "Usage: $SCRIPT_NAME run $pkg [EXEC_PATH]"
+            exit 1
+        fi
+        ;;
+    debug)
+        debug_info
+        ;;
+    ssaudit)
+        ssaudit "$@" --native
+        ;;
+    -h|--help)
+        show_help
+        ;;
+    --amber)
+        amber_egg
+        ;;
+    *)
+        show_help
+        ;;
+esac

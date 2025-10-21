@@ -1,0 +1,30 @@
+#!/bin/bash
+export PACKAGE_NAME="$DPKG_MAINTSCRIPT_PACKAGE"
+
+
+case "$1" in
+	configure)
+/var/lib/apm/$PACKAGE_NAME/files/bin/ace-init
+systemctl daemon-reload
+systemctl enable gxde-apm-fixer
+systemctl enable apm-daily-update
+systemctl start gxde-apm-fixer
+systemctl start apm-daily-update
+
+        if [ -f /usr/lib/sysctl.d/apm.conf ];then
+                sysctl -p /usr/lib/sysctl.d/apm.conf
+        fi
+
+
+;;
+	triggered)
+		      amber-pm-configure-nvidia-host
+            amber-pm-dstore-patch
+
+	;;
+esac
+
+
+
+
+true

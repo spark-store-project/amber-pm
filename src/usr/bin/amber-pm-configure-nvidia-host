@@ -1,0 +1,21 @@
+#!/bin/bash
+
+APM_BASE="/var/lib/apm"
+
+# 遍历 /var/lib/apm 下的所有目录
+for dir in "$APM_BASE"/*/; do
+    # 移除末尾的斜杠获取目录名
+    dirname=$(basename "$dir")
+    
+    # 跳过名为 "apm" 的目录
+    if [[ "$dirname" == "apm" ]]; then
+        continue
+    fi
+    
+    # 检查是否存在 /var/lib/apm/目录名/files/ace-env
+    if [[ -f "$dir/files/ace-env" ]]; then
+        echo "执行 apm-configure-nvidia: $dir"
+        amber-pm-configure-nvidia "$dir/files/ace-env"
+    fi
+    
+done
