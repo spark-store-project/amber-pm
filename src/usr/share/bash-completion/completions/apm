@@ -43,7 +43,7 @@ _apm()
         "install" "remove" "purge" "autoremove" "autopurge"
         "update"
         "upgrade" "full-upgrade" "dist-upgrade"
-        "edit-sources"
+        "run"
         "help"
         "source" "build-dep"
         "clean" "autoclean"
@@ -164,7 +164,48 @@ _apm()
                 ;;
         esac
     fi
+# 定义目录路径
+primary_dir="/var/lib/apm/apm/files/ace-env/var/lib/apm/"
+fallback_dir="/var/lib/apm/"
 
+# 查找不包含特定子目录的目录
+find_directories_without_ace_env() {
+    local base_dir="$1"
+    local result=()
+    
+    # 检查基础目录是否存在
+    if [[ ! -d "$base_dir" ]]; then
+        return 1
+    fi
+    
+    # 查找所有直接子目录，排除包含ace-env子目录的目录
+    while IFS= read -r -d '' dir; do
+        if [[ -d "$dir" ]] && [[ ! -d "$dir/files/ace-env" ]]; then
+            result+=("$(basename $dir)")
+        fi
+    done < <(find "$base_dir" -maxdepth 1 -type d ! -path "$base_dir" -print0 2>/dev/null)
+    
+    # 输出结果
+    if [[ ${#result[@]} -gt 0 ]]; then
+        printf '%s\n' "${result[@]}"
+        return 0
+    fi
+    return 1
+}
+function apm_run_compgen(){
+result=$(find_directories_without_ace_env "$primary_dir")
+
+if [[ -n "$result" ]]; then
+    echo "$result"
+else
+    result=$(find_directories_without_ace_env "$fallback_dir")
+    if [[ -n "$result" ]]; then
+        echo "$result"
+    else
+        echo ""
+    fi
+fi
+}
     # specific command arguments
     if [[ -n $command ]]; then
         case $command in
@@ -195,9 +236,8 @@ _apm()
                     command grep "^Source: $cur" | sort -u | cut -f2 -d" " ) )
                 return 0
                 ;;
-            moo)
-                COMPREPLY=( $( compgen -W 'moo' \
-                    -- "$cur" ) )
+            run)
+                COMPREPLY=( $( compgen -W "$(apm_run_compgen)" "$cur" ) )
                 return 0
                 ;;
         esac
