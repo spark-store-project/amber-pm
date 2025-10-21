@@ -8,7 +8,10 @@
 
 * 使用支持apm源的aptss，使用独立的sources.list.d,删除原有的源
 * 安装xz-utils
+* 安装 bash-completion
 * 安装一个空的apm包，用于填充依赖，附带 amber-pm-dstore-patch
+* 删除/var/lib/dpkg的 status status-old available cmethopt diversions diversions-old 
+
 
 4. 打包 apm 包时需要注意的
 
@@ -19,8 +22,8 @@
 
 
 
-* 完善 amber-pm-common 以快速创建rootfs(生成所有 locales )
-* apm 自动刷新 apm 仓库
+
+
 * 重要：如何在APM内更新内容——如何覆盖？
 * deb全自动转apm
 * apm版融合商店
@@ -32,6 +35,9 @@
 
 已完成
 
+* apm 自动刷新 apm 仓库
+* 完善 amber-pm-common 以快速创建rootfs(生成所有 locales )
 * 添加 gxde fixer 确保在GXDE下可以正常展示应用（即进行一次host integration类操作)
 * 完成amd64软件源配置
 * 修改aptss以兼容APM源加速
+* apm环境变量添加 IS_APM_ENV=1 GTK_USE_PORTAL=1
