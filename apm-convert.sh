@@ -1,60 +1,44 @@
 #!/bin/bash
 
-# APM软件包生成器
-# 用法: apm-convert-deb --basename <basename> <deb文件路径> [--pkgname <包名>] [--version <版本号>]
+# APM软件包转换器 - 将DEB包转换为APM格式
+log.warn() { echo -e "[\e[33mWARN\e[0m]:  \e[1m$*\e[0m"; }
+log.error()  { echo -e "[\e[31mERROR\e[0m]: \e[1m$*\e[0m"; }
+log.info() { echo -e "[\e[96mINFO\e[0m]:  \e[1m$*\e[0m"; }
+log.debug()  { echo -e "[\e[32mDEBUG\e[0m]: \e[1m$*\e[0m"; }
 
-
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
 
 # 显示用法信息
 usage() {
-    echo "用法: $0 --basename <basename> <deb文件路径> [--pkgname <包名>] [--version <版本号>]"
-    echo "示例: $0 --basename deepin-wine /path/to/package.deb --pkgname my-package --version 1.0.0-1"
+    echo "用法: apm-convert-deb --base <basename> <deb文件路径> [--pkgname <包名>] [--version <版本号>]"
+    echo ""
+    echo "参数说明:"
+    echo "  --basename   必填参数，指定基础环境名称"
+    echo "  deb文件路径  必填参数，要转换的DEB文件路径"
+    echo "  --pkgname    可选参数，指定新包的包名（默认使用原DEB包名）"
+    echo "  --version    可选参数，指定新包的版本号（默认在原版本后追加'-apm'）"
+    echo ""
+    echo "示例:"
+    echo "  apm-convert-deb --base amber-pm-trixie /path/to/package.deb"
+    echo "  apm-convert-deb --base amber-pm-trixie /path/to/package.deb --pkgname new-pkg --version 1.0.0"
+}
+
+# 检查参数数量
+if [ $# -lt 3 ]; then
+    log.error "错误：参数不足"
+    usage
     exit 1
-}
+fi
 
-# 显示带颜色的消息
-info() { echo -e "${GREEN}[INFO]${NC} $1"; }
-warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-error() { echo -e "${RED}[ERROR]${NC} $1"; }
-
-# 清理函数
-cleanup() {
-    info "正在清理..."
-    
-    # 卸载挂载点
-    if mountpoint -q "${CRAFT_DIR}/mergedir" ; then
-        sudo umount "${CRAFT_DIR}/mergedir" || warn "卸载 ${CRAFT_DIR}/ace-env 失败"
-    fi
-    
-    # 删除临时目录
-    if [[ -d "${CRAFT_DIR}" ]]; then
-        rm -rf "${CRAFT_DIR}" || warn "删除临时目录失败: ${CRAFT_DIR}"
-    fi
-    
-    # 删除工作目录
-    if [[ -d "${WORK_DIR}" ]]; then
-        rm -rf "${WORK_DIR}" || warn "删除工作目录失败: ${WORK_DIR}"
-    fi
-}
-
-# 信号处理
-trap cleanup EXIT INT TERM
-
-# 参数解析
+# 解析参数
 BASENAME=""
 DEB_PATH=""
 PKGNAME=""
 VERSION=""
 
-# 解析参数
-while [[ $# -gt 0 ]]; do
+# 参数解析
+while [ $# -gt 0 ]; do
     case $1 in
-        --basename)
+        --base)
             BASENAME="$2"
             shift 2
             ;;
@@ -66,82 +50,117 @@ while [[ $# -gt 0 ]]; do
             VERSION="$2"
             shift 2
             ;;
-        -*)
-            error "未知选项: $1"
-            usage
-            ;;
         *)
-            if [[ -z "$DEB_PATH" ]]; then
+            if [ -z "$DEB_PATH" ] && [ -f "$1" ]; then
                 DEB_PATH="$1"
                 shift
             else
-                error "多余的参数: $1"
+                log.error "错误：未知参数或无效的DEB文件路径: $1"
                 usage
+                exit 1
             fi
             ;;
     esac
 done
 
-# 验证必要参数
-if [[ -z "$BASENAME" || -z "$DEB_PATH" ]]; then
-    error "缺少必要参数"
+# 检查必填参数
+if [ -z "$BASENAME" ] || [ -z "$DEB_PATH" ]; then
+    log.error "错误：--basename 和 DEB文件路径 为必填参数"
     usage
-fi
-
-if [[ ! -f "$DEB_PATH" ]]; then
-    error "DEB文件不存在: $DEB_PATH"
     exit 1
 fi
 
-info "开始处理 DEB 文件: $DEB_PATH"
-info "基础环境: $BASENAME"
-# 1. 创建临时目录结构
-CRAFT_DIR=$(mktemp -d ~/apm-craft.XXXXXX)
-info "创建临时目录: $CRAFT_DIR"
+# 检查DEB文件是否存在
+if [ ! -f "$DEB_PATH" ]; then
+    log.error "错误：DEB文件不存在: $DEB_PATH"
+    exit 1
+fi
 
-mkdir -p "${CRAFT_DIR}/core" "${CRAFT_DIR}/work" "${CRAFT_DIR}/mergedir"
+log.info "开始转换DEB包: $DEB_PATH"
+log.info "基础环境: $BASENAME"
+
+# 1. 创建临时工作目录
+CRAFT_DIR="$HOME/apm-craft-$$"
+log.info "创建临时工作目录: $CRAFT_DIR"
+mkdir -p "$CRAFT_DIR"/{core,work,mergedir}
+
+# 设置环境变量
 export CRAFT_DIR
 
-# 2. 融合挂载
+# 检查是否已挂载，避免重复挂载
+cleanup_mount() {
+    if mountpoint -q "$CRAFT_DIR/mergedir"; then
+        log.info "解除挂载: $CRAFT_DIR/mergedir"
+        sudo umount "$CRAFT_DIR/mergedir" || true
+    fi
+}
+
+# 清理函数
+cleanup() {
+    log.info "开始清理..."
+    cleanup_mount
+    if [ -d "$CRAFT_DIR" ]; then
+        log.info "删除临时目录: $CRAFT_DIR"
+        sudo rm -rf "$CRAFT_DIR"
+    fi
+}
+
+# 设置退出时清理
+trap cleanup EXIT
+
+# 2. 进行融合挂载
+log.info "正在进行融合挂载..."
 ACE_ENV_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/ace-env"
-if [[ ! -d "$ACE_ENV_PATH" ]]; then
-    error "基础环境不存在: $ACE_ENV_PATH"
+
+if [ ! -d "$ACE_ENV_PATH" ]; then
+    log.error "错误：基础环境路径不存在: $ACE_ENV_PATH"
     exit 1
 fi
 
-info "正在挂载融合文件系统..."
 sudo mount -t overlay overlay \
-    -o "lowerdir=${ACE_ENV_PATH},upperdir=${CRAFT_DIR}/core/,workdir=${CRAFT_DIR}/work/" \
-    "${CRAFT_DIR}/mergedir"
-# 3. 安装DEB包到融合环境
-info "正在安装DEB包到融合环境..."
-export chrootEnvPath="${CRAFT_DIR}/mergedir"
+    -o "lowerdir=$ACE_ENV_PATH,upperdir=$CRAFT_DIR/core/,workdir=$CRAFT_DIR/work/" \
+    "$CRAFT_DIR/mergedir"
+
+log.info "挂载完成"
+
+# 3. 在融合环境中安装DEB包
+log.info "在融合环境中安装DEB包..."
+
+# 更新包列表
+export chrootEnvPath="$CRAFT_DIR/mergedir"
+sudo -E /var/lib/apm/apm/files/ace-run-pkg apt update
+
+# 安装DEB包
 sudo -E /var/lib/apm/apm/files/ace-run-pkg apt install "$DEB_PATH" -y
 
-# 4. 检查DEB文件信息
-info "正在分析DEB包信息..."
+log.info "DEB包安装完成"
+
+# 4. 检查原DEB包信息
+log.info "检查原DEB包信息..."
 ORIG_PKGNAME=$(dpkg -f "$DEB_PATH" Package)
 ORIG_VERSION=$(dpkg -f "$DEB_PATH" Version)
 
+log.info "原包名: $ORIG_PKGNAME"
+log.info "原版本: $ORIG_VERSION"
+
 # 设置新包名和版本
 NEW_PKGNAME="${PKGNAME:-$ORIG_PKGNAME}"
-NEW_VERSION="${VERSION:-${ORIG_VERSION}-1}"
+NEW_VERSION="${VERSION:-${ORIG_VERSION}-apm}"
 
-info "原包名: $ORIG_PKGNAME, 原版本: $ORIG_VERSION"
-info "新包名: $NEW_PKGNAME, 新版本: $NEW_VERSION"
+log.info "新包名: $NEW_PKGNAME"
+log.info "新版本: $NEW_VERSION"
 
 # 5. 创建新的DEB包结构
-WORK_DIR=$(mktemp -d ~/apm-work.XXXXXX)
-info "创建工作目录: $WORK_DIR"
+log.info "创建新的APM包结构..."
+PKG_BUILD_DIR="$CRAFT_DIR/new-pkg"
+mkdir -p "$PKG_BUILD_DIR/DEBIAN"
+mkdir -p "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME"/{entries,files}
 
-DEB_ROOT="${WORK_DIR}/${NEW_PKGNAME}_${NEW_VERSION}_amd64"
-mkdir -p "${DEB_ROOT}/DEBIAN"
-mkdir -p "${DEB_ROOT}/var/lib/apm/${NEW_PKGNAME}"
-mkdir -p "${DEB_ROOT}/var/lib/apm/${NEW_PKGNAME}/entries"
-mkdir -p "${DEB_ROOT}/var/lib/apm/${NEW_PKGNAME}/files"
+# 创建info文件
+echo "$BASENAME" > "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/info"
 
 # 创建postinst脚本
-cat > "${DEB_ROOT}/DEBIAN/postinst" << 'EOF'
+cat > "$PKG_BUILD_DIR/DEBIAN/postinst" << 'EOF'
 #!/bin/bash
 PACKAGE_NAME="$DPKG_MAINTSCRIPT_PACKAGE"
 
@@ -152,83 +171,106 @@ else
     echo "非卸载，跳过清理"
 fi
 EOF
-chmod 755 "${DEB_ROOT}/DEBIAN/postinst"
 
-# 创建info文件
-echo "$BASENAME" > "${DEB_ROOT}/var/lib/apm/${NEW_PKGNAME}/info"
+chmod +x "$PKG_BUILD_DIR/DEBIAN/postinst"
+
+
+
+# 6. 提取原DEB包内容并处理
+log.info "提取原DEB包内容..."
+EXTRACT_DIR="$CRAFT_DIR/extract"
+mkdir -p "$EXTRACT_DIR"
+
+# 解压DEB包
+dpkg -x "$DEB_PATH" "$EXTRACT_DIR"
 
 # 处理.desktop文件
-info "正在处理桌面文件..."
-DESKTOP_FILES=$(dpkg -L "$ORIG_PKGNAME" | grep "^/usr/share/" 2>/dev/null || true)
+find "$EXTRACT_DIR" -name "*.desktop" | while read -r desktop_file; do
+    log.info "处理桌面文件: $desktop_file"
 
-for desktop_file in $DESKTOP_FILES; do
-    if sudo -E /var/lib/apm/apm/files/ace-run-pkg test -f "$desktop_file"; then
-        info "处理桌面文件: $desktop_file"
-        
-        # 修改Exec和TryExec行
-        sudo -E /var/lib/apm/apm/files/ace-run-pkg sed -i \
-            -e "s/^Exec=\(.*\)$/Exec=apm run $NEW_PKGNAME \1/" \
-            -e "s/^TryExec=\(.*\)$/TryExec=apm run $NEW_PKGNAME \1/" \
-            "$desktop_file"
+    
+    # 在Exec和TryExec行前追加 "apm run $NEW_PKGNAME"
+    # 处理Exec行
+    if grep -q '^Exec=' "$desktop_file"; then
+        sed -i 's/^Exec=\(.*\)$/Exec=apm run '"$NEW_PKGNAME"' \1/' "$desktop_file"
     fi
+    
+    # 处理TryExec行
+    if grep -q '^TryExec=' "$desktop_file"; then
+        sed -i 's/^TryExec=\(.*\)$/TryExec=apm run '"$NEW_PKGNAME"' \1/' "$desktop_file"
+    fi
+    
+    # 检查修改结果
+    if grep -q "apm run $NEW_PKGNAME" "$desktop_file"; then
+        log.info "桌面文件修改成功"
+        log.debug "修改后的Exec行: $(grep '^Exec=' "$desktop_file" || echo "未找到")"
+        log.debug "修改后的TryExec行: $(grep '^TryExec=' "$desktop_file" || echo "未找到")"
+    else
+        log.warn "桌面文件可能未正确修改: $desktop_file"
+    fi
+    
+    if ! grep -q "X-APM-APPID" "$desktop_file"; then
+        log.info "追加 X-APM-APPID"
+        echo "X-APM-APPID=$NEW_PKGNAME" >> $desktop_file
+    fi
+#     # 复制到entries目录
+#     rel_path="${desktop_file#$EXTRACT_DIR}"
+#     target_dir="$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/entries/$(dirname "$rel_path")"
+#     mkdir -p "$target_dir"
+#     cp "$desktop_file" "$target_dir/"
 done
 
-# 复制/usr/share/下的文件
-info "正在复制/usr/share/文件..."
-SHARE_FILES=$(dpkg -L "$ORIG_PKGNAME" | grep "^/usr/share/" || true)
-for file in $SHARE_FILES; do
-    rel_path="${file#/usr/share/}"
-    if sudo -E /var/lib/apm/apm/files/ace-run-pkg test -e "/usr/share/$rel_path"; then
-        dest_dir="${DEB_ROOT}/var/lib/apm/${NEW_PKGNAME}/entries/$(dirname "$rel_path")"
-        mkdir -p "$dest_dir"
-        sudo cp -a "${CRAFT_DIR}/mergedir/$rel_path" "$dest_dir/" 2>/dev/null || true
-    fi
-done
+# 复制/usr/share/内容到entries
+if [ -d "$EXTRACT_DIR/usr/share" ]; then
+    log.info "复制/usr/share/内容..."
+    cp -r "$EXTRACT_DIR/usr/share/"* "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/entries/"
+fi
 
-# 复制/opt/apps/下的文件
-info "正在复制/opt/apps/文件..."
-OPT_FILES=$(dpkg -L "$ORIG_PKGNAME" | grep "^/opt/apps/${ORIG_PKGNAME}/entries/" || true)
-for file in $OPT_FILES; do
-    rel_path="${file#/opt/apps/${ORIG_PKGNAME}/entries/}"
-    if sudo -E /var/lib/apm/apm/files/ace-run-pkg test -e "$file"; then
-        dest_dir="${DEB_ROOT}/var/lib/apm/${NEW_PKGNAME}/entries/$(dirname "$rel_path")"
-        mkdir -p "$dest_dir"
-        sudo cp -a "${CRAFT_DIR}/mergedir/$file" "$dest_dir/" 2>/dev/null || true
-    fi
-done
+# 复制/opt/apps/内容（如果存在）
+if [ -d "$EXTRACT_DIR/opt/apps/$ORIG_PKGNAME/entries" ]; then
+    log.info  "复制/opt/apps/$ORIG_PKGNAME/entries内容..."
+    cp -r "$EXTRACT_DIR/opt/apps/$ORIG_PKGNAME/entries/"* "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/entries/"
+fi
 
-# 复制core和work目录到files
-info "正在复制核心文件..."
-sudo chown -R $(id -u):$(id -g) "${CRAFT_DIR}/core" "${CRAFT_DIR}/work"
-chmod -R 755 "${CRAFT_DIR}/work" "${CRAFT_DIR}/core"
-cp -a "${CRAFT_DIR}/core" "${DEB_ROOT}/var/lib/apm/${NEW_PKGNAME}/files/"
-cp -a "${CRAFT_DIR}/work" "${DEB_ROOT}/var/lib/apm/${NEW_PKGNAME}/files/"
+# 7. 复制融合环境文件
+log.info  "复制融合环境文件..."
+sudo cp -r "$CRAFT_DIR"/{core,work} "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/files/"
 
 # 设置文件权限
-sudo chown -R $(id -u):$(id -g) "${DEB_ROOT}/var/lib/apm/${NEW_PKGNAME}/files"
-chmod -R 755 "${DEB_ROOT}/var/lib/apm/${NEW_PKGNAME}/files"
+sudo chmod -R 755 "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/files/"
 
+# 8. 解除挂载
+log.info  "解除挂载..."
+cleanup_mount
+
+# 9. 打包新的DEB包
+log.info  "打包新的APM包..."
+calculate_directory_size() {
+    local dir="$1"
+    if [ -d "$dir" ]; then
+        du -sk "$dir" | cut -f1
+    else
+        echo "0"
+    fi
+}
 # 创建control文件
-cat > "${DEB_ROOT}/DEBIAN/control" << EOF
+    cat > "${PKG_BUILD_DIR}/DEBIAN/control" << EOF
 Package: $NEW_PKGNAME
 Version: $NEW_VERSION
 Architecture: amd64
 Maintainer: APM Converter <apm@localhost>
-Description: APM converted package from $ORIG_PKGNAME
- Converted from original package: $ORIG_PKGNAME
 Depends: $BASENAME
+Installed-Size: $(calculate_directory_size $PKG_BUILD_DIR)
+Description: APM converted package from $DEB_PATH
+  This package was automatically converted from the original deb package.
 EOF
+OUTPUT_DEB="${NEW_PKGNAME}_${NEW_VERSION}_amd64.apm.deb"
+fakeroot dpkg-deb --build "$PKG_BUILD_DIR" "$OUTPUT_DEB"
 
-# 6. 解除挂载
-info "正在解除挂载..."
-sudo umount "${CRAFT_DIR}/mergedir"
+log.info  "转换完成！"
+log.info "生成的APM包: $OUTPUT_DEB"
+log.info "包名: $NEW_PKGNAME"
+log.info "版本: $NEW_VERSION"
+log.info "依赖: $BASENAME"
 
-# 7. 打包DEB
-info "正在打包DEB文件..."
-fakeroot dpkg-deb --build "${DEB_ROOT}" "${NEW_PKGNAME}_${NEW_VERSION}_amd64.apm.deb"
-
-info "APM包生成完成: ${NEW_PKGNAME}_${NEW_VERSION}_amd64.apm.deb"
-
-# 8. 清理工作目录
-sudo rm -rf "$WORK_DIR"
-info "清理完成"
+# 清理在exit时自动执行
