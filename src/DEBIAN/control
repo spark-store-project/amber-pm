@@ -3,7 +3,7 @@ Source: amber-ce
 Version: 1.0.5
 Architecture: amd64
 Maintainer: shenmo <shenmo@spark-app.store>
-Installed-Size: 48672
+Installed-Size: 48676
 Depends: bubblewrap, flatpak, zenity, policykit-1 | pkexec | polkit-1 | polkit, systemd, procps,coreutils,fuse-overlayfs
 Section: misc
 Conflicts: ace-host-integration

@@ -25,9 +25,10 @@ Commands:
   full-upgrade 完全升级软件包
   run <package> 运行指定软件包的可执行文件
   ssaudit <path> 使用 ssaudit 进行软件安装，详情见 spark-store
-  debug        显示调试系统信息
+  debug        显示调试系统信息并进入调试环境
+  amber      彩蛋功能
   -h, --help   显示此帮助信息
-  --amber      彩蛋功能
+
 
 EOF
 }
@@ -159,12 +160,12 @@ case "$1" in
         debug_info
         ;;
     ssaudit)
-        ssaudit "$@" --native
+        amber-pm-debug ssaudit "$@" --native
         ;;
     -h|--help)
         show_help
         ;;
-    --amber)
+    amber)
         amber_egg
         ;;
     *)

@@ -36,7 +36,7 @@ _apm()
 
     # see if the user selected a command already
     local COMMANDS=(
-        "ssupdate"
+        "ssaudit"
         "list"
         "search"
         "show" "showsrc"
@@ -48,7 +48,8 @@ _apm()
         "source" "build-dep"
         "clean" "autoclean"
         "download" "changelog"
-        "moo"
+        "amber"
+        "debug"
         "depends" "rdepends"
         "policy")
 
