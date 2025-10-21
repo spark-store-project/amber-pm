@@ -203,7 +203,7 @@ find "$EXTRACT_DIR" -name "*.desktop" | while read -r desktop_file; do
 icon_line=$(grep "^Icon=" "$desktop_file")
 if [[ "$icon_line" == "Icon=/"* ]]; then
     # 单引号包裹不变部分，双引号包裹变量部分
-    sed -i 's|^Icon=/|Icon='"$NEW_PKGNAME"'/files/core/|' "$desktop_file"
+    sed -i 's|^Icon=/|Icon=/var/lib/apm/apm/files/ace-env/var/lib/apm/'"$NEW_PKGNAME"'/files/core/|' "$desktop_file"
 fi
 
     
