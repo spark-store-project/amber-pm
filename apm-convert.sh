@@ -179,9 +179,9 @@ SHARE_FILES=$(dpkg -L "$ORIG_PKGNAME" | grep "^/usr/share/" || true)
 for file in $SHARE_FILES; do
     rel_path="${file#/usr/share/}"
     if sudo -E /var/lib/apm/apm/files/ace-run-pkg test -e "/usr/share/$rel_path"; then
-        dest_dir="${DEB_ROOT}/var/lib/apm/${NEW_PKGNAME}/entries/usr/share/$(dirname "$rel_path")"
+        dest_dir="${DEB_ROOT}/var/lib/apm/${NEW_PKGNAME}/entries/$(dirname "$rel_path")"
         mkdir -p "$dest_dir"
-        sudo cp -a "${CRAFT_DIR}/mergedir/usr/share/$rel_path" "$dest_dir/" 2>/dev/null || true
+        sudo cp -a "${CRAFT_DIR}/mergedir/$rel_path" "$dest_dir/" 2>/dev/null || true
     fi
 done
 
