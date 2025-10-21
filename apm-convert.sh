@@ -271,8 +271,7 @@ Installed-Size: $(calculate_directory_size $PKG_BUILD_DIR)
 Description: APM converted package from $DEB_PATH
   This package was automatically converted from the original deb package.
 EOF
-OUTPUT_DEB="${NEW_PKGNAME}_${NEW_VERSION}_amd64.apm.deb"
-fakeroot dpkg-deb --build "$PKG_BUILD_DIR" "$OUTPUT_DEB"
+fakeroot dpkg-deb --build "$PKG_BUILD_DIR" .
 
 log.info  "转换完成！"
 log.info "生成的APM包: $OUTPUT_DEB"
