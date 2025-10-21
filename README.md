@@ -1,6 +1,7 @@
 # APM 原理和软件包制作流程
 
-spec还未完全确定，现在是demo阶段
+
+源码在 src
 
 原理：https://www.cnblogs.com/arnoldlu/p/13055501.html
 
