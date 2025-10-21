@@ -128,10 +128,10 @@ log.info "在融合环境中安装DEB包..."
 
 # 更新包列表
 export chrootEnvPath="$CRAFT_DIR/mergedir"
-sudo -E /var/lib/apm/apm/files/ace-run-pkg apt update
+sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss update
 
 # 安装DEB包
-sudo -E /var/lib/apm/apm/files/ace-run-pkg apt install "$DEB_PATH" -y
+sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss install "$DEB_PATH" -y
 
 log.info "DEB包安装完成"
 
@@ -199,6 +199,13 @@ find "$EXTRACT_DIR" -name "*.desktop" | while read -r desktop_file; do
     if grep -q '^TryExec=' "$desktop_file"; then
         sed -i 's/^TryExec=\(.*\)$/TryExec=apm run '"$NEW_PKGNAME"' \1/' "$desktop_file"
     fi
+
+icon_line=$(grep "^Icon=" "$desktop_file")
+if [[ "$icon_line" == "Icon=/"* ]]; then
+    # 单引号包裹不变部分，双引号包裹变量部分
+    sed -i 's|^Icon=/|Icon='"$NEW_PKGNAME"'/files/core/|' "$desktop_file"
+fi
+
     
     # 检查修改结果
     if grep -q "apm run $NEW_PKGNAME" "$desktop_file"; then
@@ -273,4 +280,4 @@ log.info "包名: $NEW_PKGNAME"
 log.info "版本: $NEW_VERSION"
 log.info "依赖: $BASENAME"
 
-# 清理在exit时自动执行
+
