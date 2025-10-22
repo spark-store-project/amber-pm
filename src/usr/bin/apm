@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION=1.0.5
+VERSION=1.0.7.2
 # 获取脚本名称用于帮助信息
 SCRIPT_NAME=$(basename "$0")
 PATH_PREFIX=/var/lib/apm/apm/files/ace-env/
