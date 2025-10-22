@@ -5,11 +5,11 @@ log.warn() { echo -e "[\e[33mWARN\e[0m]:  \e[1m$*\e[0m"; }
 log.error()  { echo -e "[\e[31mERROR\e[0m]: \e[1m$*\e[0m"; }
 log.info() { echo -e "[\e[96mINFO\e[0m]:  \e[1m$*\e[0m"; }
 log.debug()  { echo -e "[\e[32mDEBUG\e[0m]: \e[1m$*\e[0m"; }
-
+SCRIPT_NAME=$(basename "$0")
 
 # 显示用法信息
 usage() {
-    echo "用法: apm-convert-deb --base <basename> <deb文件路径> [--pkgname <包名>] [--version <版本号>]"
+    echo "用法: $SCRIPT_NAME --base <basename> <deb文件路径> [--pkgname <包名>] [--version <版本号>]"
     echo ""
     echo "参数说明:"
     echo "  --basename   必填参数，指定基础环境名称"
@@ -18,8 +18,8 @@ usage() {
     echo "  --version    可选参数，指定新包的版本号（默认在原版本后追加'-apm'）"
     echo ""
     echo "示例:"
-    echo "  apm-convert-deb --base amber-pm-trixie /path/to/package.deb"
-    echo "  apm-convert-deb --base amber-pm-trixie /path/to/package.deb --pkgname new-pkg --version 1.0.0"
+    echo "  $SCRIPT_NAME --base amber-pm-trixie /path/to/package.deb"
+    echo "  $SCRIPT_NAME --base amber-pm-trixie /path/to/package.deb --pkgname new-pkg --version 1.0.0"
 }
 
 # 检查参数数量
