@@ -1,11 +1,16 @@
-# APM 原理和软件包制作流程
+# APM 
 
+
+
+APM 是一款基于 fuse-overlayfs ， dpkg ， ACE 的容器软件包管理系统
 
 源码在 src
 
 原理：https://www.cnblogs.com/arnoldlu/p/13055501.html
 
 ## 体验demo: 查看 https://gitee.com/amber-ce/amber-pm/releases
+
+
 
 制作apm包upperdir的流程
 
