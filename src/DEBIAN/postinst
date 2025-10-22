@@ -10,6 +10,7 @@ systemctl enable gxde-apm-fixer
 systemctl enable apm-daily-update
 systemctl start gxde-apm-fixer
 systemctl start apm-daily-update
+systemctl restart apparmor.service || true
 
         if [ -f /usr/lib/sysctl.d/apm.conf ];then
                 sysctl -p /usr/lib/sysctl.d/apm.conf
