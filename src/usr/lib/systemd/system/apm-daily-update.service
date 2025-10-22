@@ -1,12 +1,12 @@
 [Unit]
-Description=APM GXDE Fixer
+Description=APM Daily Update
 After=apt-daily.service network.target network-online.target systemd-networkd.service NetworkManager.service connman.service
 
 
 [Service]
 Type=simple
 RemainAfterExit=yes 
-ExecStart=/var/lib/apm/apm/files/bin/ace-gxde-fixer
+ExecStart=apm clean && apm update
 Restart=on-failure
 RestartSec=10
 
