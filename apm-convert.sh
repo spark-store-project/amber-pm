@@ -148,6 +148,11 @@ fi
 
 log.info "DEB包安装完成"
 
+# 清理一些垃圾
+
+sudo -E /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/apt/lists
+sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss clean
+
 # 4. 检查原DEB包信息
 log.info "检查原DEB包信息..."
 ORIG_PKGNAME=$(dpkg -f "$DEB_PATH" Package)
