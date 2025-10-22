@@ -6,9 +6,11 @@
 
 3. apm 内置 ubuntu rootfs的修改如下
 
-* 使用支持apm源的aptss，使用独立的sources.list.d,删除原有的源
+
 * 安装xz-utils
 * 安装 bash-completion
+* 安装 ca-certificates
+* 使用支持apm源的aptss，使用独立的sources.list.d,删除原有的源
 * 安装一个空的apm包，用于填充依赖，附带 amber-pm-dstore-patch
 * 删除/var/lib/dpkg的 status status-old available cmethopt diversions diversions-old 
 
