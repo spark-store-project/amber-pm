@@ -130,8 +130,21 @@ log.info "在融合环境中安装DEB包..."
 export chrootEnvPath="$CRAFT_DIR/mergedir"
 sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss update
 
-# 安装DEB包
-sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss install "$DEB_PATH" -y
+# 首先进行dry-run检查
+log.info "进行安装前检查..."
+if ! sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss install "$DEB_PATH" --dry-run; then
+    log.error "错误：安装前检查失败，DEB包可能无法在基础环境中安装"
+    log.error "请检查依赖关系或基础环境是否兼容"
+    exit 1
+fi
+
+log.info "安装前检查通过，开始实际安装..."
+
+# 实际安装DEB包
+if ! sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss install "$DEB_PATH" -y; then
+    log.error "错误：DEB包安装失败"
+    exit 1
+fi
 
 log.info "DEB包安装完成"
 
@@ -139,9 +152,11 @@ log.info "DEB包安装完成"
 log.info "检查原DEB包信息..."
 ORIG_PKGNAME=$(dpkg -f "$DEB_PATH" Package)
 ORIG_VERSION=$(dpkg -f "$DEB_PATH" Version)
+ORIG_ARCH=$(dpkg -f "$DEB_PATH" Architecture)
 
 log.info "原包名: $ORIG_PKGNAME"
 log.info "原版本: $ORIG_VERSION"
+log.info "原架构: $ORIG_ARCH"
 
 # 设置新包名和版本
 NEW_PKGNAME="${PKGNAME:-$ORIG_PKGNAME}"
@@ -149,6 +164,7 @@ NEW_VERSION="${VERSION:-${ORIG_VERSION}-apm}"
 
 log.info "新包名: $NEW_PKGNAME"
 log.info "新版本: $NEW_VERSION"
+log.info "新架构: $ORIG_ARCH"
 
 # 5. 创建新的DEB包结构
 log.info "创建新的APM包结构..."
@@ -174,8 +190,6 @@ EOF
 
 chmod +x "$PKG_BUILD_DIR/DEBIAN/postinst"
 
-
-
 # 6. 提取原DEB包内容并处理
 log.info "提取原DEB包内容..."
 EXTRACT_DIR="$CRAFT_DIR/extract"
@@ -188,7 +202,6 @@ dpkg -x "$DEB_PATH" "$EXTRACT_DIR"
 find "$EXTRACT_DIR" -name "*.desktop" | while read -r desktop_file; do
     log.info "处理桌面文件: $desktop_file"
 
-    
     # 在Exec和TryExec行前追加 "apm run $NEW_PKGNAME"
     # 处理Exec行
     if grep -q '^Exec=' "$desktop_file"; then
@@ -200,13 +213,12 @@ find "$EXTRACT_DIR" -name "*.desktop" | while read -r desktop_file; do
         sed -i 's/^TryExec=\(.*\)$/TryExec=apm run '"$NEW_PKGNAME"' \1/' "$desktop_file"
     fi
 
-icon_line=$(grep "^Icon=" "$desktop_file")
-if [[ "$icon_line" == "Icon=/"* ]]; then
-    # 单引号包裹不变部分，双引号包裹变量部分
-    sed -i 's|^Icon=/|Icon=/var/lib/apm/apm/files/ace-env/var/lib/apm/'"$NEW_PKGNAME"'/files/core/|' "$desktop_file"
-fi
+    icon_line=$(grep "^Icon=" "$desktop_file")
+    if [[ "$icon_line" == "Icon=/"* ]]; then
+        # 单引号包裹不变部分，双引号包裹变量部分
+        sed -i 's|^Icon=/|Icon=/var/lib/apm/apm/files/ace-env/var/lib/apm/'"$NEW_PKGNAME"'/files/core/|' "$desktop_file"
+    fi
 
-    
     # 检查修改结果
     if grep -q "apm run $NEW_PKGNAME" "$desktop_file"; then
         log.info "桌面文件修改成功"
@@ -220,11 +232,6 @@ fi
         log.info "追加 X-APM-APPID"
         echo "X-APM-APPID=$NEW_PKGNAME" >> $desktop_file
     fi
-#     # 复制到entries目录
-#     rel_path="${desktop_file#$EXTRACT_DIR}"
-#     target_dir="$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/entries/$(dirname "$rel_path")"
-#     mkdir -p "$target_dir"
-#     cp "$desktop_file" "$target_dir/"
 done
 
 # 复制/usr/share/内容到entries
@@ -260,23 +267,28 @@ calculate_directory_size() {
         echo "0"
     fi
 }
+
 # 创建control文件
-    cat > "${PKG_BUILD_DIR}/DEBIAN/control" << EOF
+cat > "${PKG_BUILD_DIR}/DEBIAN/control" << EOF
 Package: $NEW_PKGNAME
 Version: $NEW_VERSION
-Architecture: amd64
+Architecture: $ORIG_ARCH
 Maintainer: APM Converter <apm@localhost>
 Depends: $BASENAME
 Installed-Size: $(calculate_directory_size $PKG_BUILD_DIR)
 Description: APM converted package from $DEB_PATH
   This package was automatically converted from the original deb package.
 EOF
-fakeroot dpkg-deb --build "$PKG_BUILD_DIR" .
+
+# 生成输出文件名
+OUTPUT_DEB="${NEW_PKGNAME}_${NEW_VERSION}_${ORIG_ARCH}.deb"
+
+# 打包
+fakeroot dpkg-deb --build "$PKG_BUILD_DIR" "$OUTPUT_DEB"
 
 log.info  "转换完成！"
 log.info "生成的APM包: $OUTPUT_DEB"
 log.info "包名: $NEW_PKGNAME"
 log.info "版本: $NEW_VERSION"
+log.info "架构: $ORIG_ARCH"
 log.info "依赖: $BASENAME"
-
-
