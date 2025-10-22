@@ -21,6 +21,7 @@ Commands:
   install      安装软件包
   remove       卸载软件包
   update       更新软件包信息
+  clean        清除缓存软件包
   autoremove   自动移除不需要的包
   full-upgrade 完全升级软件包
   run <package> 运行指定软件包的可执行文件
@@ -111,7 +112,7 @@ case "$1" in
     amber-pm-debug aptss "$command" "$@"
     apm-nvidia-toggle
     ;;
-   remove|autoremove|search|policy|list|update|purge|autopurge)
+   remove|autoremove|search|policy|list|update|purge|autopurge|clean)
         # 特殊APT命令：移除第一个参数后传递其余参数
         command=$1
         shift

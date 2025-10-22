@@ -6,7 +6,7 @@ After=apt-daily.service network.target network-online.target systemd-networkd.se
 [Service]
 Type=simple
 RemainAfterExit=yes 
-ExecStart=apm update
+ExecStart=/var/lib/apm/apm/files/bin/ace-gxde-fixer 
 Restart=on-failure
 RestartSec=10
 
