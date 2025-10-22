@@ -86,6 +86,8 @@ ENV_VARS=(
 BIND_DIRS=(
     "--dev-bind $chrootEnvPath/ /"
     "--dev-bind-try /media /media"
+    "--dev-bind-try /root /root"
+    "--dev-bind-try /www /www"
     "--dev-bind-try /mnt /mnt"
     "--dev-bind-try /tmp /tmp"
     "--dev-bind-try /data /data"
