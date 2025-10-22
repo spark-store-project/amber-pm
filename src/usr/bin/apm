@@ -118,6 +118,13 @@ case "$1" in
     command=$1
     shift
     amber-pm-debug aptss "$command" "$@"
+        exit_code=$?
+    if [ $exit_code -eq 0 ]; then
+        log.info "Operation successful"
+    else
+        log.error "Error: Operation failed"
+        exit $exit_code
+    fi
     ;;
 
    remove|autoremove|purge|autopurge)
@@ -125,6 +132,13 @@ case "$1" in
         command=$1
         shift
         amber-pm-debug aptss "$command" "$@"
+        exit_code=$?
+    if [ $exit_code -eq 0 ]; then
+        log.info "Operation successful"
+    else
+        log.error "Error: Operation failed"
+        exit $exit_code
+    fi
         amber-pm-debug amber-pm-dstore-patch
         ;;
    run)
