@@ -11,7 +11,7 @@ if [ "$1" = "remove" ] || [ "$1" = "purge" ];then
 
 echo "清理卸载残留"
 
-rm -rf /var/lib/apm/$PACKAGE_NAME
+rm -rf /var/lib/apm/
 else
 echo "非卸载，跳过清理"
 fi

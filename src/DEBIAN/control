@@ -1,6 +1,6 @@
 Package: apm
 Source: amber-ce
-Version: 1.0.7.2
+Version: 1.0.7.2-1
 Architecture: amd64
 Maintainer: shenmo <shenmo@spark-app.store>
 Installed-Size: 49056
