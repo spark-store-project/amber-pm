@@ -141,7 +141,7 @@ fi
 log.info "安装前检查通过，开始实际安装..."
 
 # 实际安装DEB包
-if ! sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss install "$DEB_PATH" -y; then
+if ! sudo -E /var/lib/apm/apm/files/ace-run-pkg ssaudit "$DEB_PATH" --native; then
     log.error "错误：DEB包安装失败"
     exit 1
 fi
