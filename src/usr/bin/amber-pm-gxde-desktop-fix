@@ -1,0 +1,30 @@
+#!/bin/bash
+
+if [[ ! -e "/usr/share/gxde-api" ]];then
+exit 0 # No needed
+fi
+
+# 函数：检查目录并创建符号链接
+process_directory() {
+    local source_dir="$1"
+    local target_dir="$2"
+    local name="$3"
+    
+    if [ -d "$source_dir" ] && [ -n "$(ls -A "$source_dir")" ]; then
+        ln -sv $source_dir/* "$target_dir" 2>/dev/null
+        find "$target_dir" -xtype l -exec echo '{} is invalid now and going to be cleaned' \; -exec unlink {} \; 2>/dev/null &
+    else
+        echo "$name directory is empty or does not exist, skipping..."
+    fi
+}
+
+# 处理 applications 目录
+process_directory "/var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir/applications/" \
+                  "/usr/local/share/applications/" "Applications"
+
+# 处理 icons 目录
+process_directory "/var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir/icons/" \
+                  "/usr/local/share/icons/" "Icons"
+
+# 等待所有后台任务完成
+wait
