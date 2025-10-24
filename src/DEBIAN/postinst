@@ -6,9 +6,7 @@ case "$1" in
 	configure)
 /var/lib/apm/$PACKAGE_NAME/files/bin/ace-init
 systemctl daemon-reload
-systemctl enable gxde-apm-fixer
 systemctl enable apm-daily-update
-systemctl start gxde-apm-fixer
 systemctl start apm-daily-update
 systemctl restart apparmor.service || true
 

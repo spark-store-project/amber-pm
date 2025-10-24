@@ -1,7 +1,5 @@
 #!/bin/bash
 PACKAGE_NAME="$DPKG_MAINTSCRIPT_PACKAGE"
-systemctl stop gxde-apm-fixer
-systemctl disable gxde-apm-fixer
 systemctl stop apm-daily-update
 systemctl disable apm-daily-update
 
