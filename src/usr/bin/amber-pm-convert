@@ -82,7 +82,7 @@ log.info "基础环境: $BASENAME"
 # 1. 创建临时工作目录
 CRAFT_DIR="$HOME/apm-craft-$$"
 log.info "创建临时工作目录: $CRAFT_DIR"
-mkdir -p "$CRAFT_DIR"/{core,work,mergedir}
+mkdir -p "$CRAFT_DIR"/{core,work,mergedir,modified_deb}
 
 # 设置环境变量
 export CRAFT_DIR
@@ -108,52 +108,7 @@ cleanup() {
 # 设置退出时清理
 trap cleanup EXIT
 
-# 2. 进行融合挂载
-log.info "正在进行融合挂载..."
-ACE_ENV_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/ace-env"
-
-if [ ! -d "$ACE_ENV_PATH" ]; then
-    log.error "错误：基础环境路径不存在: $ACE_ENV_PATH"
-    exit 1
-fi
-
-sudo mount -t overlay overlay \
-    -o "lowerdir=$ACE_ENV_PATH,upperdir=$CRAFT_DIR/core/,workdir=$CRAFT_DIR/work/" \
-    "$CRAFT_DIR/mergedir"
-
-log.info "挂载完成"
-
-# 3. 在融合环境中安装DEB包
-log.info "在融合环境中安装DEB包..."
-
-# 更新包列表
-export chrootEnvPath="$CRAFT_DIR/mergedir"
-sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss update
-
-# 首先进行dry-run检查
-log.info "进行安装前检查..."
-if ! sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss install "$DEB_PATH" --dry-run; then
-    log.error "错误：安装前检查失败，DEB包可能无法在基础环境中安装"
-    log.error "请检查依赖关系或基础环境是否兼容"
-    exit 1
-fi
-
-log.info "安装前检查通过，开始实际安装..."
-
-# 实际安装DEB包
-if ! sudo -E /var/lib/apm/apm/files/ace-run-pkg ssaudit "$DEB_PATH" --native; then
-    log.error "错误：DEB包安装失败"
-    exit 1
-fi
-
-log.info "DEB包安装完成"
-
-# 清理一些垃圾
-
-sudo -E /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/apt/lists
-sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss clean
-
-# 4. 检查原DEB包信息
+# 2. 检查原DEB包信息
 log.info "检查原DEB包信息..."
 ORIG_PKGNAME=$(dpkg -f "$DEB_PATH" Package)
 ORIG_VERSION=$(dpkg -f "$DEB_PATH" Version)
@@ -171,7 +126,126 @@ log.info "新包名: $NEW_PKGNAME"
 log.info "新版本: $NEW_VERSION"
 log.info "新架构: $ORIG_ARCH"
 
-# 5. 创建新的DEB包结构
+# 4. 进行融合挂载
+log.info "正在进行融合挂载..."
+ACE_ENV_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/ace-env"
+
+if [ ! -d "$ACE_ENV_PATH" ]; then
+    log.error "错误：基础环境路径不存在: $ACE_ENV_PATH"
+    exit 1
+fi
+
+sudo mount -t overlay overlay \
+    -o "lowerdir=$ACE_ENV_PATH,upperdir=$CRAFT_DIR/core/,workdir=$CRAFT_DIR/work/" \
+    "$CRAFT_DIR/mergedir"
+
+log.info "挂载完成"
+
+# 5. 在融合环境中安装修改后的DEB包
+log.info "在融合环境中测试安装DEB包..."
+
+# 更新包列表
+export chrootEnvPath="$CRAFT_DIR/mergedir"
+sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss update
+
+# 首先进行dry-run检查
+log.info "进行安装前检查..."
+if ! sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss install "$DEB_PATH" --dry-run; then
+    log.error "错误：安装前检查失败，DEB包可能无法在基础环境中安装"
+    log.error "请检查依赖关系或基础环境是否兼容"
+    exit 1
+fi
+
+log.info "安装前检查通过，准备实际安装..."
+
+
+# 3. 提取并修改DEB包
+log.info "提取并修改原DEB包..."
+EXTRACT_DIR="$CRAFT_DIR/extract"
+MODIFIED_DEB_DIR="$CRAFT_DIR/modified_deb"
+mkdir -p "$EXTRACT_DIR"
+mkdir -p "$MODIFIED_DEB_DIR/DEBIAN"
+
+# 解压DEB包
+dpkg -x "$DEB_PATH" "$EXTRACT_DIR"
+dpkg -e "$DEB_PATH" "$MODIFIED_DEB_DIR/DEBIAN"
+
+# 处理.desktop文件
+DESKTOP_MODIFIED=false
+find "$EXTRACT_DIR" -name "*.desktop" | while read -r desktop_file; do
+    log.info "处理桌面文件: $desktop_file"
+    DESKTOP_MODIFIED=true
+
+    # 在Exec和TryExec行前追加 "apm run $NEW_PKGNAME"
+    # 处理Exec行
+    if grep -q '^Exec=' "$desktop_file"; then
+        sed -i 's/^Exec=\(.*\)$/Exec=apm run '"$NEW_PKGNAME"' \1/' "$desktop_file"
+    fi
+    
+    # 处理TryExec行
+    if grep -q '^TryExec=' "$desktop_file"; then
+        sed -i 's/^TryExec=\(.*\)$/TryExec=apm run '"$NEW_PKGNAME"' \1/' "$desktop_file"
+    fi
+
+    # 处理Icon路径
+    icon_line=$(grep "^Icon=" "$desktop_file")
+    if [[ "$icon_line" == "Icon=/"* ]]; then
+        sed -i 's|^Icon=/|Icon=/var/lib/apm/apm/files/ace-env/var/lib/apm/'"$NEW_PKGNAME"'/files/core/|' "$desktop_file"
+    fi
+
+    # 添加X-APM-APPID
+    if ! grep -q "X-APM-APPID" "$desktop_file"; then
+        echo "X-APM-APPID=$NEW_PKGNAME" >> "$desktop_file"
+    fi
+
+    # 检查修改结果
+    if grep -q "apm run $NEW_PKGNAME" "$desktop_file"; then
+        log.info "桌面文件修改成功"
+        log.debug "修改后的Exec行: $(grep '^Exec=' "$desktop_file" || echo "未找到")"
+        log.debug "修改后的TryExec行: $(grep '^TryExec=' "$desktop_file" || echo "未找到")"
+    else
+        log.warn "桌面文件可能未正确修改: $desktop_file"
+    fi
+done
+
+if [ "$DESKTOP_MODIFIED" = false ]; then
+    log.info "未找到需要修改的.desktop文件"
+fi
+
+# 重新打包修改后的DEB
+MODIFIED_DEB_PATH="$CRAFT_DIR/modified_${ORIG_PKGNAME}.deb"
+log.info "重新打包修改后的DEB: $MODIFIED_DEB_PATH"
+
+# 复制修改后的文件结构到打包目录
+mkdir -p "$MODIFIED_DEB_DIR/data"
+cp -r "$EXTRACT_DIR"/* "$MODIFIED_DEB_DIR/" 2>/dev/null || true
+
+# 使用fakeroot重新打包
+cd "$MODIFIED_DEB_DIR" && fakeroot dpkg-deb --build -Z none . "$MODIFIED_DEB_PATH"
+cd - > /dev/null
+
+if [ ! -f "$MODIFIED_DEB_PATH" ]; then
+    log.error "错误：重新打包DEB失败"
+    exit 1
+fi
+
+log.info "DEB包修改完成，新包路径: $MODIFIED_DEB_PATH"
+
+
+
+# 实际安装修改后的DEB包
+if ! sudo -E /var/lib/apm/apm/files/ace-run-pkg ssaudit "$MODIFIED_DEB_PATH" --native --no-create-desktop-entry; then
+    log.error "错误：修改后的DEB包安装失败"
+    exit 1
+fi
+
+log.info "修改后的DEB包安装完成"
+
+# 清理一些垃圾
+sudo -E /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/apt/lists
+sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss clean
+
+# 6. 创建新的APM包结构
 log.info "创建新的APM包结构..."
 PKG_BUILD_DIR="$CRAFT_DIR/new-pkg"
 mkdir -p "$PKG_BUILD_DIR/DEBIAN"
@@ -195,49 +269,8 @@ EOF
 
 chmod +x "$PKG_BUILD_DIR/DEBIAN/postinst"
 
-# 6. 提取原DEB包内容并处理
-log.info "提取原DEB包内容..."
-EXTRACT_DIR="$CRAFT_DIR/extract"
-mkdir -p "$EXTRACT_DIR"
-
-# 解压DEB包
-dpkg -x "$DEB_PATH" "$EXTRACT_DIR"
-
-# 处理.desktop文件
-find "$EXTRACT_DIR" -name "*.desktop" | while read -r desktop_file; do
-    log.info "处理桌面文件: $desktop_file"
-
-    # 在Exec和TryExec行前追加 "apm run $NEW_PKGNAME"
-    # 处理Exec行
-    if grep -q '^Exec=' "$desktop_file"; then
-        sed -i 's/^Exec=\(.*\)$/Exec=apm run '"$NEW_PKGNAME"' \1/' "$desktop_file"
-    fi
-    
-    # 处理TryExec行
-    if grep -q '^TryExec=' "$desktop_file"; then
-        sed -i 's/^TryExec=\(.*\)$/TryExec=apm run '"$NEW_PKGNAME"' \1/' "$desktop_file"
-    fi
-
-    icon_line=$(grep "^Icon=" "$desktop_file")
-    if [[ "$icon_line" == "Icon=/"* ]]; then
-        # 单引号包裹不变部分，双引号包裹变量部分
-        sed -i 's|^Icon=/|Icon=/var/lib/apm/apm/files/ace-env/var/lib/apm/'"$NEW_PKGNAME"'/files/core/|' "$desktop_file"
-    fi
-
-    # 检查修改结果
-    if grep -q "apm run $NEW_PKGNAME" "$desktop_file"; then
-        log.info "桌面文件修改成功"
-        log.debug "修改后的Exec行: $(grep '^Exec=' "$desktop_file" || echo "未找到")"
-        log.debug "修改后的TryExec行: $(grep '^TryExec=' "$desktop_file" || echo "未找到")"
-    else
-        log.warn "桌面文件可能未正确修改: $desktop_file"
-    fi
-    
-    if ! grep -q "X-APM-APPID" "$desktop_file"; then
-        log.info "追加 X-APM-APPID"
-        echo "X-APM-APPID=$NEW_PKGNAME" >> $desktop_file
-    fi
-done
+# 7. 复制文件到新的APM包
+log.info "复制文件到新的APM包..."
 
 # 复制/usr/share/内容到entries
 if [ -d "$EXTRACT_DIR/usr/share" ]; then
@@ -251,7 +284,7 @@ if [ -d "$EXTRACT_DIR/opt/apps/$ORIG_PKGNAME/entries" ]; then
     cp -r "$EXTRACT_DIR/opt/apps/$ORIG_PKGNAME/entries/"* "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/entries/"
 fi
 
-# 7. 复制融合环境文件
+# 复制融合环境文件
 log.info  "复制融合环境文件..."
 sudo cp -r "$CRAFT_DIR"/{core,work} "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/files/"
 
@@ -262,7 +295,7 @@ sudo chmod -R 755 "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/files/"
 log.info  "解除挂载..."
 cleanup_mount
 
-# 9. 打包新的DEB包
+# 9. 打包新的APM包
 log.info  "打包新的APM包..."
 calculate_directory_size() {
     local dir="$1"
@@ -297,3 +330,4 @@ log.info "包名: $NEW_PKGNAME"
 log.info "版本: $NEW_VERSION"
 log.info "架构: $ORIG_ARCH"
 log.info "依赖: $BASENAME"
+log.info "注意：桌面文件已修改，添加了APM运行前缀和APPID"
