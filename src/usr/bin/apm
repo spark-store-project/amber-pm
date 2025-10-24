@@ -120,6 +120,7 @@ case "$1" in
     fi
     amber-pm-debug amber-pm-dstore-patch
     apm-nvidia-toggle
+    amber-pm-gxde-desktop-fix
     ;;
     download|search|policy|list|update|clean)
     command=$1
@@ -147,6 +148,7 @@ case "$1" in
         exit $exit_code
     fi
         amber-pm-debug amber-pm-dstore-patch
+        amber-pm-gxde-desktop-fix
         ;;
    run)
         # 运行包命令：第二个参数必须是包名
