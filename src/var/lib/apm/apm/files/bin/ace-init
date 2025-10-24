@@ -111,6 +111,9 @@ sudo -u $(get_current_user) bwrap --dev-bind $chrootEnvPath/ / \
   locale-gen
 bookworm-run update-locale LANG=$LANG
 chown -R root $chrootEnvPath
+mkdir -p $chrootEnvPath/amber-ce-tools/data-dir
+ln -sv ../../usr/share/applications $chrootEnvPath/amber-ce-tools/data-dir/applications/
+ln -sv ../../usr/share/icons $chrootEnvPath/amber-ce-tools/data-dir/icons/
 chmod 777 -R $chrootEnvPath/usr/share/icons
 rm -vfr $chrootEnvPath/dev/*
 true
