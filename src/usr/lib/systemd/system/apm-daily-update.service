@@ -6,7 +6,7 @@ After=apt-daily.service network.target network-online.target systemd-networkd.se
 [Service]
 Type=simple
 RemainAfterExit=yes 
-ExecStart=apm clean && apm update
+ExecStart=bash -c "apm clean && apm update"
 Restart=on-failure
 RestartSec=10
 
