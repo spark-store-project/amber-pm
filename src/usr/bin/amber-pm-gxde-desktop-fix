@@ -1,7 +1,7 @@
 #!/bin/bash
 
-if [[ ! -e "/usr/share/gxde-api" ]];then
-exit 0 # No needed
+if [[ ! -e "/usr/share/gxde-api" ]] && ! grep -q "Kylin" /etc/os-release; then
+    exit 0 # No needed
 fi
 
 # 函数：检查目录并创建符号链接
