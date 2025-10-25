@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION=1.0.7.2
+VERSION=1.0.8.1
 # 获取脚本名称用于帮助信息
 SCRIPT_NAME=$(basename "$0")
 PATH_PREFIX=/var/lib/apm/apm/files/ace-env/
@@ -92,7 +92,7 @@ bronya_egg() {
 
 
 Valkyrie 系统启动 - 重装小兔，Fire！
-💎 感谢 Anyset 为 AmberCE 和 AmberPM 的 Arch 架构支持提供帮助～
+💎 感谢 Anysets 为 AmberCE 和 AmberPM 的 Arch 架构支持提供帮助～
 EOF
 }
 
