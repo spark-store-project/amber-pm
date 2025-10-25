@@ -242,8 +242,10 @@ fi
 log.info "修改后的DEB包安装完成"
 
 # 清理一些垃圾
-sudo -E /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/apt/lists
 sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss clean
+sudo -E /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/apt/lists
+sudo -E /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/aptss/lists
+
 
 # 6. 创建新的APM包结构
 log.info "创建新的APM包结构..."
