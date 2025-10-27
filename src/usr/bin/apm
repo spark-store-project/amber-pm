@@ -48,10 +48,10 @@ apm_exec(){
     while : ; do
         # 构建info文件的路径
         next_info_file="${current_dir}/info"
-        echo "${current_dir}/info"
+#        echo "${current_dir}/info"
         # 检查info文件是否存在
         if [[ ! -f "$next_info_file" ]]; then
-            log.debug "No more info files found, stopping recursion."
+#            log.debug "No more info files found, stopping recursion."
             break
         fi
         
