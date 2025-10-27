@@ -116,7 +116,7 @@ trap cleanup EXIT
 get_recursive_basenames() {
     local basename="$1"
     local base_dir="/var/lib/apm/apm/files/ace-env/var/lib/apm/$basename"
-    local info_file="$base_dir/files/ace-env/info"
+    local info_file="$base_dir/info"
     
     if [ -f "$info_file" ]; then
         log.info "读取info文件: $info_file"
