@@ -38,14 +38,56 @@ Commands:
 EOF
 }
 
+
 apm_exec(){
-mkdir -p /tmp/apm/${coredir}
-fuse-overlayfs -o lowerdir="${PATH_PREFIX}/var/lib/apm/${basedir}/files/ace-env",upperdir="${PATH_PREFIX}/var/lib/apm/${coredir}/files/core/",workdir="${PATH_PREFIX}/var/lib/apm/${coredir}/files/work/" "/tmp/apm/${coredir}"
-
-chrootEnvPath=/tmp/apm/${coredir} /var/lib/apm/apm/files/ace-run "$@"
-umount /tmp/apm/${coredir}
-
+    # 读取info文件中的所有行，按从下到上的顺序构建lowerdir
+    local lowerdirs=()
+    
+    # 检查info文件是否存在
+    if [[ ! -f "${PATH_PREFIX}/var/lib/apm/${coredir}/info" ]]; then
+        log.error "Info file not found for package: $coredir"
+        return 1
+    fi
+    
+    # 读取info文件的每一行
+    while IFS= read -r basedir; do
+        [[ -z "$basedir" ]] && continue  # 跳过空行
+        
+        # 检查ace-env目录是否存在
+        if [[ -d "${PATH_PREFIX}/var/lib/apm/${basedir}/files/ace-env" ]]; then
+            lowerdirs+=("${PATH_PREFIX}/var/lib/apm/${basedir}/files/ace-env")
+        # 如果ace-env不存在，检查core目录
+        elif [[ -d "${PATH_PREFIX}/var/lib/apm/${basedir}/files/core" ]]; then
+            lowerdirs+=("${PATH_PREFIX}/var/lib/apm/${basedir}/files/core")
+        else
+            log.warn "Neither ace-env nor core directory found for base: $basedir"
+        fi
+    done < "${PATH_PREFIX}/var/lib/apm/${coredir}/info"
+    
+    # 检查是否找到了有效的lowerdir
+    if [[ ${#lowerdirs[@]} -eq 0 ]]; then
+        log.error "No valid lower directories found for package: $coredir"
+        return 1
+    fi
+    
+    # 将lowerdirs数组用冒号连接起来
+    local lowerdir=$(IFS=:; echo "${lowerdirs[*]}")
+    
+    # 创建挂载点目录
+    mkdir -p "/tmp/apm/${coredir}"
+    
+    # 使用fuse-overlayfs挂载
+    log.debug "Mounting with lowerdir: $lowerdir"
+    fuse-overlayfs -o lowerdir="$lowerdir",upperdir="${PATH_PREFIX}/var/lib/apm/${coredir}/files/core/",workdir="${PATH_PREFIX}/var/lib/apm/${coredir}/files/work/" "/tmp/apm/${coredir}"
+    
+    # 执行命令
+    chrootEnvPath="/tmp/apm/${coredir}" /var/lib/apm/apm/files/ace-run "$@"
+    
+    # 卸载
+    umount "/tmp/apm/${coredir}"
 }
+
+
 
 # 调试信息函数
 debug_info() {
@@ -222,7 +264,6 @@ case "$1" in
         fi
         
         coredir=$pkg
-        basedir=$(cat ${PATH_PREFIX}/var/lib/apm/${coredir}/info)
 
 
         # 检测是否有额外命令参数
