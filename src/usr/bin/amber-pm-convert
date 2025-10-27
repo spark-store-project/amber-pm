@@ -9,17 +9,17 @@ SCRIPT_NAME=$(basename "$0")
 
 # 显示用法信息
 usage() {
-    echo "用法: $SCRIPT_NAME --base <basename> <deb文件路径> [--pkgname <包名>] [--version <版本号>]"
+    echo "用法: $SCRIPT_NAME --base <basename> [--base <basename> ...] <deb文件路径> [--pkgname <包名>] [--version <版本号>]"
     echo ""
     echo "参数说明:"
-    echo "  --basename   必填参数，指定基础环境名称"
+    echo "  --basename   必填参数，指定基础环境名称，可多次使用指定多个基础环境"
     echo "  deb文件路径  必填参数，要转换的DEB文件路径"
     echo "  --pkgname    可选参数，指定新包的包名（默认使用原DEB包名）"
     echo "  --version    可选参数，指定新包的版本号（默认在原版本后追加'-apm'）"
     echo ""
     echo "示例:"
     echo "  $SCRIPT_NAME --base amber-pm-trixie /path/to/package.deb"
-    echo "  $SCRIPT_NAME --base amber-pm-trixie /path/to/package.deb --pkgname new-pkg --version 1.0.0"
+    echo "  $SCRIPT_NAME --base base1 --base base2 --base base3 /path/to/package.deb --pkgname new-pkg --version 1.0.0"
 }
 
 # 检查参数数量
@@ -30,7 +30,7 @@ if [ $# -lt 3 ]; then
 fi
 
 # 解析参数
-BASENAME=""
+BASENAMES=()  # 改为数组存储多个base
 DEB_PATH=""
 PKGNAME=""
 VERSION=""
@@ -39,7 +39,7 @@ VERSION=""
 while [ $# -gt 0 ]; do
     case $1 in
         --base)
-            BASENAME="$2"
+            BASENAMES+=("$2")
             shift 2
             ;;
         --pkgname)
@@ -64,8 +64,8 @@ while [ $# -gt 0 ]; do
 done
 
 # 检查必填参数
-if [ -z "$BASENAME" ] || [ -z "$DEB_PATH" ]; then
-    log.error "错误：--basename 和 DEB文件路径 为必填参数"
+if [ ${#BASENAMES[@]} -eq 0 ] || [ -z "$DEB_PATH" ]; then
+    log.error "错误：至少需要一个--basename参数，且DEB文件路径为必填"
     usage
     exit 1
 fi
@@ -77,7 +77,10 @@ if [ ! -f "$DEB_PATH" ]; then
 fi
 
 log.info "开始转换DEB包: $DEB_PATH"
-log.info "基础环境: $BASENAME"
+log.info "基础环境数量: ${#BASENAMES[@]}"
+for i in "${!BASENAMES[@]}"; do
+    log.info "  基础环境 $((i+1)): ${BASENAMES[$i]}"
+done
 
 # 1. 创建临时工作目录
 CRAFT_DIR="$HOME/apm-craft-$$"
@@ -126,17 +129,38 @@ log.info "新包名: $NEW_PKGNAME"
 log.info "新版本: $NEW_VERSION"
 log.info "新架构: $ORIG_ARCH"
 
+# 3. 构建lowerdir路径（多个base按顺序叠放）
+log.info "构建overlay lowerdir路径..."
+LOWERDIRS=()
+
+# 按顺序处理每个base（从第一个到最后一个，第一个在最底层）
+for BASENAME in "${BASENAMES[@]}"; do
+    ACE_ENV_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/ace-env"
+    CORE_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/core"
+    
+    if [ -d "$ACE_ENV_PATH" ]; then
+        log.info "使用ace-env路径: $ACE_ENV_PATH"
+        LOWERDIRS+=("$ACE_ENV_PATH")
+    elif [ -d "$CORE_PATH" ]; then
+        log.info "使用core路径: $CORE_PATH"
+        LOWERDIRS+=("$CORE_PATH")
+    else
+        log.error "错误：基础环境路径不存在: $BASENAME"
+        log.error "  检查的路径: $ACE_ENV_PATH"
+        log.error "  检查的路径: $CORE_PATH"
+        exit 1
+    fi
+done
+
+# 将lowerdirs数组用冒号连接
+LOWERDIR=$(IFS=:; echo "${LOWERDIRS[*]}")
+log.debug "最终lowerdir: $LOWERDIR"
+
 # 4. 进行融合挂载
 log.info "正在进行融合挂载..."
-ACE_ENV_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/ace-env"
-
-if [ ! -d "$ACE_ENV_PATH" ]; then
-    log.error "错误：基础环境路径不存在: $ACE_ENV_PATH"
-    exit 1
-fi
 
 sudo mount -t overlay overlay \
-    -o "lowerdir=$ACE_ENV_PATH,upperdir=$CRAFT_DIR/core/,workdir=$CRAFT_DIR/work/" \
+    -o "lowerdir=$LOWERDIR,upperdir=$CRAFT_DIR/core/,workdir=$CRAFT_DIR/work/" \
     "$CRAFT_DIR/mergedir"
 
 log.info "挂载完成"
@@ -158,8 +182,7 @@ fi
 
 log.info "安装前检查通过，准备实际安装..."
 
-
-# 3. 提取并修改DEB包
+# 6. 提取并修改DEB包
 log.info "提取并修改原DEB包..."
 EXTRACT_DIR="$CRAFT_DIR/extract"
 MODIFIED_DEB_DIR="$CRAFT_DIR/modified_deb"
@@ -231,8 +254,6 @@ fi
 
 log.info "DEB包修改完成，新包路径: $MODIFIED_DEB_PATH"
 
-
-
 # 实际安装修改后的DEB包
 if ! sudo -E /var/lib/apm/apm/files/ace-run-pkg ssaudit "$MODIFIED_DEB_PATH" --native --no-create-desktop-entry; then
     log.error "错误：修改后的DEB包安装失败"
@@ -246,15 +267,18 @@ sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss clean
 sudo -E /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/apt/lists
 sudo -E /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/aptss/lists
 
-
-# 6. 创建新的APM包结构
+# 7. 创建新的APM包结构
 log.info "创建新的APM包结构..."
 PKG_BUILD_DIR="$CRAFT_DIR/new-pkg"
 mkdir -p "$PKG_BUILD_DIR/DEBIAN"
 mkdir -p "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME"/{entries,files}
 
-# 创建info文件
-echo "$BASENAME" > "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/info"
+# 创建info文件 - 写入所有base，每行一个
+log.info "创建info文件，包含所有基础环境:"
+for BASENAME in "${BASENAMES[@]}"; do
+    echo "$BASENAME" >> "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/info"
+    log.info "  写入: $BASENAME"
+done
 
 # 创建postinst脚本
 cat > "$PKG_BUILD_DIR/DEBIAN/postinst" << 'EOF'
@@ -271,7 +295,7 @@ EOF
 
 chmod +x "$PKG_BUILD_DIR/DEBIAN/postinst"
 
-# 7. 复制文件到新的APM包
+# 8. 复制文件到新的APM包
 log.info "复制文件到新的APM包..."
 
 # 复制/usr/share/内容到entries
@@ -293,11 +317,11 @@ sudo cp -r "$CRAFT_DIR"/{core,work} "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/fil
 # 设置文件权限
 sudo chmod -R 755 "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/files/"
 
-# 8. 解除挂载
+# 9. 解除挂载
 log.info  "解除挂载..."
 cleanup_mount
 
-# 9. 打包新的APM包
+# 10. 打包新的APM包
 log.info  "打包新的APM包..."
 calculate_directory_size() {
     local dir="$1"
@@ -308,16 +332,20 @@ calculate_directory_size() {
     fi
 }
 
+# 构建依赖字符串 - 包含所有base
+DEPENDS_STR=$(IFS=,; echo "${BASENAMES[*]}")
+
 # 创建control文件
 cat > "${PKG_BUILD_DIR}/DEBIAN/control" << EOF
 Package: $NEW_PKGNAME
 Version: $NEW_VERSION
 Architecture: $ORIG_ARCH
 Maintainer: APM Converter <apm@localhost>
-Depends: $BASENAME
+Depends: $DEPENDS_STR
 Installed-Size: $(calculate_directory_size $PKG_BUILD_DIR)
 Description: APM converted package from $DEB_PATH
   This package was automatically converted from the original deb package.
+  Based on: ${BASENAMES[*]}
 EOF
 
 # 生成输出文件名
@@ -331,5 +359,6 @@ log.info "生成的APM包: $OUTPUT_DEB"
 log.info "包名: $NEW_PKGNAME"
 log.info "版本: $NEW_VERSION"
 log.info "架构: $ORIG_ARCH"
-log.info "依赖: $BASENAME"
+log.info "依赖: $DEPENDS_STR"
+log.info "基础环境: ${BASENAMES[*]}"
 log.info "注意：桌面文件已修改，添加了APM运行前缀和APPID"
