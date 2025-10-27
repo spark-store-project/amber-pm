@@ -19,7 +19,7 @@ usage() {
     echo ""
     echo "示例:"
     echo "  $SCRIPT_NAME --base amber-pm-trixie /path/to/package.deb"
-    echo "  $SCRIPT_NAME --base base上 --base base中 --base base下 /path/to/package.deb --pkgname new-pkg --version 1.0.0"
+    echo "  $SCRIPT_NAME --base amber-pm-bookworm-spark-wine /path/to/package.deb --pkgname new-pkg --version 1.0.0"
     echo "最下层的base在最后面，从上到下写base"
 }
 
@@ -112,7 +112,35 @@ cleanup() {
 # 设置退出时清理
 trap cleanup EXIT
 
-# 2. 检查原DEB包信息
+# 递归获取info文件中的依赖
+get_recursive_basenames() {
+    local basename="$1"
+    local base_dir="/var/lib/apm/apm/files/ace-env/var/lib/apm/$basename"
+    local info_file="$base_dir/files/ace-env/info"
+    
+    if [ -f "$info_file" ]; then
+        log.info "读取info文件: $info_file"
+        while IFS= read -r base; do
+            # 跳过空行
+            [[ -z "$base" ]] && continue
+            # 如果依赖的base没有被记录过，则递归添加
+            if [[ ! " ${BASENAMES[*]} " =~ " $base " ]]; then
+                BASENAMES+=("$base")
+                # 递归获取依赖
+                get_recursive_basenames "$base"
+            fi
+        done < "$info_file"
+    else
+        log.info "未找到info文件，跳过: $info_file"
+    fi
+}
+
+# 递归获取所有基础环境
+for BASE in "${BASENAMES[@]}"; do
+    get_recursive_basenames "$BASE"
+done
+
+# 检查DEB文件
 log.info "检查原DEB包信息..."
 ORIG_PKGNAME=$(dpkg -f "$DEB_PATH" Package)
 ORIG_VERSION=$(dpkg -f "$DEB_PATH" Version)
@@ -130,7 +158,7 @@ log.info "新包名: $NEW_PKGNAME"
 log.info "新版本: $NEW_VERSION"
 log.info "新架构: $ORIG_ARCH"
 
-# 3. 构建lowerdir路径（多个base按顺序叠放）
+# 2. 构建lowerdir路径（多个base按顺序叠放）
 log.info "构建overlay lowerdir路径..."
 LOWERDIRS=()
 
