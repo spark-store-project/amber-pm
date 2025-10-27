@@ -368,19 +368,19 @@ calculate_directory_size() {
 }
 
 # 构建依赖字符串 - 包含所有base
-DEPENDS_STR=$(IFS=,; echo "${BASENAMES[*]}")
+DEPENDS_STR=$(IFS=,; echo "${BASENAMES_ORIG[*]}")
 
 # 创建control文件
 cat > "${PKG_BUILD_DIR}/DEBIAN/control" << EOF
 Package: $NEW_PKGNAME
 Version: $NEW_VERSION
 Architecture: $ORIG_ARCH
-Maintainer: APM Converter <apm@localhost>
+Maintainer: APM Converter <apm-convert@spark-app.store>
 Depends: $DEPENDS_STR
 Installed-Size: $(calculate_directory_size $PKG_BUILD_DIR)
 Description: APM converted package from $ORIG_PKGNAME
   This package was automatically converted from the original deb package.
-  Based on: ${BASENAMES[*]}
+  Based on: ${BASENAMES_ORIG[*]}
 EOF
 
 # 生成输出文件名
