@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION=1.0.9
+VERSION=1.0.10
 # 获取脚本名称用于帮助信息
 SCRIPT_NAME=$(basename "$0")
 PATH_PREFIX=/var/lib/apm/apm/files/ace-env/
@@ -48,7 +48,7 @@ apm_exec(){
     while : ; do
         # 构建info文件的路径
         next_info_file="${current_dir}/info"
-
+        echo "${current_dir}/info"
         # 检查info文件是否存在
         if [[ ! -f "$next_info_file" ]]; then
             log.debug "No more info files found, stopping recursion."
@@ -72,12 +72,12 @@ apm_exec(){
 
         # 尝试获取下一个依赖信息的路径
         local next_basedir=$(tail -n 1 "$next_info_file")
-        if [[ -z "$next_basedir" || ! -d "${PATH_PREFIX}/var/lib/apm/${next_basedir}/files" ]]; then
+        if [[ -z "$next_basedir" || ! -d "${PATH_PREFIX}/var/lib/apm/${next_basedir}" ]]; then
             log.debug "No further dependencies found, ending recursion."
             break
         fi
         # 更新当前目录，递归处理下一个依赖
-        current_dir="${PATH_PREFIX}/var/lib/apm/${next_basedir}/files"
+        current_dir="${PATH_PREFIX}/var/lib/apm/${next_basedir}"
     done
     
     # 检查是否找到了有效的lowerdir
@@ -88,7 +88,6 @@ apm_exec(){
     
     # 将lowerdirs数组用冒号连接起来
     local lowerdir=$(IFS=:; echo "${lowerdirs[*]}")
-    
     # 创建挂载点目录
     mkdir -p "/tmp/apm/${coredir}"
     

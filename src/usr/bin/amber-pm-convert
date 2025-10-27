@@ -41,6 +41,7 @@ while [ $# -gt 0 ]; do
     case $1 in
         --base)
             BASENAMES+=("$2")
+            BASENAMES_ORIG+=("$2")
             shift 2
             ;;
         --pkgname)
@@ -305,8 +306,9 @@ mkdir -p "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME"/{entries,files}
 # 创建info文件 - 写入所有base，每行一个
 log.info "创建info文件，包含所有基础环境:"
 for BASENAME in "${BASENAMES[@]}"; do
-    echo "$BASENAME" >> "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/info"
-    log.info "  写入: $BASENAME"
+    echo "$BASENAME_ORIG" >> "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/info"
+    echo "$BASENAME" >> "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/info_debug"
+    log.info "  写入: $BASENAME_ORIG"
 done
 
 # 创建postinst脚本
@@ -372,7 +374,7 @@ Architecture: $ORIG_ARCH
 Maintainer: APM Converter <apm@localhost>
 Depends: $DEPENDS_STR
 Installed-Size: $(calculate_directory_size $PKG_BUILD_DIR)
-Description: APM converted package from $DEB_PATH
+Description: APM converted package from $ORIG_PKGNAME
   This package was automatically converted from the original deb package.
   Based on: ${BASENAMES[*]}
 EOF
