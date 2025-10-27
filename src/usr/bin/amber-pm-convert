@@ -19,7 +19,8 @@ usage() {
     echo ""
     echo "示例:"
     echo "  $SCRIPT_NAME --base amber-pm-trixie /path/to/package.deb"
-    echo "  $SCRIPT_NAME --base base1 --base base2 --base base3 /path/to/package.deb --pkgname new-pkg --version 1.0.0"
+    echo "  $SCRIPT_NAME --base base上 --base base中 --base base下 /path/to/package.deb --pkgname new-pkg --version 1.0.0"
+    echo "最下层的base在最后面，从上到下写base"
 }
 
 # 检查参数数量
@@ -133,7 +134,7 @@ log.info "新架构: $ORIG_ARCH"
 log.info "构建overlay lowerdir路径..."
 LOWERDIRS=()
 
-# 按顺序处理每个base（从第一个到最后一个，第一个在最底层）
+# 按顺序处理每个base（从第一个到最后一个，最后一个在最底层）
 for BASENAME in "${BASENAMES[@]}"; do
     ACE_ENV_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/ace-env"
     CORE_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/core"
