@@ -304,11 +304,15 @@ mkdir -p "$PKG_BUILD_DIR/DEBIAN"
 mkdir -p "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME"/{entries,files}
 
 # 创建info文件 - 写入所有base，每行一个
-log.info "创建info文件，包含所有基础环境:"
+log.info "创建info文件，包含输入的基础环境:"
+for BASENAME in "${BASENAMES_ORIG[@]}"; do
+    echo "$BASENAME" >> "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/info"
+    log.info "  写入: $BASENAME"
+done
+log.info "创建info_debug文件，包含所有基础环境:"
 for BASENAME in "${BASENAMES[@]}"; do
-    echo "$BASENAMES_ORIG" >> "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/info"
     echo "$BASENAME" >> "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/info_debug"
-    log.info "  写入: $BASENAME_ORIG"
+    log.info "  写入: $BASENAME"
 done
 
 # 创建postinst脚本
