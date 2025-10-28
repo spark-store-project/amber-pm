@@ -299,6 +299,16 @@ case "$1" in
         ;;
     ssaudit)
         amber-pm-debug ssaudit "$@" --native
+        exit_code=$?
+    if [ $exit_code -eq 0 ]; then
+        log.info "Operation successful"
+    else
+        log.error "Error: Operation failed"
+        exit $exit_code
+    fi
+        amber-pm-debug amber-pm-dstore-patch
+        amber-pm-gxde-desktop-fix
+
         ;;
     -h|--help)
         show_help
