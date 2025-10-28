@@ -28,6 +28,7 @@ Commands:
   remove            卸载软件包
   update            更新软件包信息
   list              查看可用软件包信息
+  show              查看软件包信息
   search            搜索软件包
   download          下载包
   clean             清除缓存软件包
