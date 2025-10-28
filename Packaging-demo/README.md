@@ -91,12 +91,14 @@ fi
 软件应当被放置在 /var/lib/apm/软件包名/ 处
 此处有两个目录，两个文件
 
-entries 可选，包含了软件包需要被放到 /usr/share/ 的文件，如 desktop icon 等
+entries 可选，包含了软件包需要被放到 /usr/share/ 的文件，如 desktop icon 等 
 files 必须，包含了软件包的 upperdir 和 workdir 
 info 必须，包含了直接依赖的base信息。若应用使用了多层的依赖，会一层一层寻找info信息，直到找到底层依赖
 info_debug 可选，包含了打包时解析的依赖信息
 
 entries下的内容同软件需要放置到 /usr/share/ 下的内容
+
+> 注意： .desktop 文件应当新加一行 X-APM-APPID=包名 来允许软件管理器管理
 
 files的内容请见下一节
 
