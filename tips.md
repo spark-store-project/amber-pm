@@ -4,7 +4,7 @@
 
 2. apm 添加了一个钩子（debian only)，在安装到 /var/lib/apm 下的应用存在ace-env时，进行configure nvidia操作；若存在entries,则进行链接到/usr/share/applications操作
 
-3. apm 内置 ubuntu rootfs的修改如下
+3. apm 内置 rootfs的修改如下
 
 
 * 安装xz-utils
@@ -26,8 +26,7 @@
 
 
 
-* 重要：如何在APM内更新内容——如何覆盖？
-* deb全自动转apm
+
 * apm版融合商店
 * 类似 Wine 运行器的方式全图形化傻瓜式打包
 * 自动融合 APM 应用到系统主机，并实现右键卸载
@@ -43,3 +42,5 @@
 * 完成amd64软件源配置
 * 修改aptss以兼容APM源加速
 * apm环境变量添加 IS_APM_ENV=1 GTK_USE_PORTAL=1
+* 重要：如何在APM内更新内容——如何覆盖？
+* deb全自动转apm

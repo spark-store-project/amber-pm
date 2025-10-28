@@ -17,22 +17,23 @@ APM - Amber Package Manager ${VERSION}
 Usage:
   $SCRIPT_NAME [COMMAND] [OPTIONS] [PACKAGES...]
 
+
 Commands:
   install      安装软件包
   remove       卸载软件包
   update       更新软件包信息
+  list         查看可用软件包信息
+  search       搜索软件包
   download     下载包
   clean        清除缓存软件包
   autoremove   自动移除不需要的包
   full-upgrade 完全升级软件包
   run <package> 运行指定软件包的可执行文件
-  ssaudit <path> 使用 ssaudit 进行软件安装，详情见 spark-store
+  ssaudit <path> 使用 ssaudit 进行本地软件安装，详情见 spark-store
   debug        显示调试系统信息并进入调试环境
   amber      彩蛋功能
   xmp360     彩蛋功能
   bronya     彩蛋功能
-
-  -h, --help   显示此帮助信息
 
 
 EOF
