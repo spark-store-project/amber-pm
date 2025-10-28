@@ -133,3 +133,7 @@ fuse-overlayfs -o lowerdir='/var/lib/apm/apm/files/ace-env/var/lib/apm/base包�
 ## APM 打包
 
 使用 `dpkg-deb --build 软件包目录 输出目录` 即可进行打包
+
+## APM 底层 Base Runtime 的构建
+
+详见 https://gitee.com/amber-ce/amber-pm-common
