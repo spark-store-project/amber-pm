@@ -104,8 +104,6 @@ sudo -u $(get_current_user) bwrap --dev-bind $chrootEnvPath/ / \
   --bind-try /usr/share/themes /usr/local/share/themes  \
   --bind-try /usr/share/icons /usr/local/share/icons  \
   --bind-try /usr/share/fonts /usr/local/share/fonts  \
-  --hostname Amber-PM \
-  --unshare-uts \
   --dev-bind-try /etc/resolv.conf /etc/resolv.conf \
   --dev-bind-try /home /home \
   locale-gen
