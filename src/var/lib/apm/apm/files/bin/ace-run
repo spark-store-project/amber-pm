@@ -1,5 +1,10 @@
 #!/bin/bash
 
+bash(){
+/usr/bin/bash --rcfile <(cat ~/.bashrc; echo "PS1=\"\[\e[37;40m\][\[\e[32;40m\]\u\[\e[37;40m\]@Amber-PM \[\e[36;40m\]\w\[\e[0m\]]\\\$ \"") $@
+}
+export -f bash
+
 curdir=`realpath $0`
 parent_dir=`dirname $curdir`
 pparent_dir=`dirname $parent_dir`
@@ -115,8 +120,6 @@ BIND_DIRS=(
     "--dev-bind-try /home /home"
 )
 EXTRA_ARGS=(
-    "--hostname Amber-PM"
-    "--unshare-uts"
     "--cap-add CAP_SYS_ADMIN"
 )
 
