@@ -274,7 +274,7 @@ mkdir -p "$MODIFIED_DEB_DIR/data"
 cp -r "$EXTRACT_DIR"/* "$MODIFIED_DEB_DIR/" 2>/dev/null || true
 
 # 使用fakeroot重新打包
-cd "$MODIFIED_DEB_DIR" && fakeroot dpkg-deb --build -Z none . "$MODIFIED_DEB_PATH"
+cd "$MODIFIED_DEB_DIR" && fakeroot amber-pm-debug dpkg-deb --build -Z none . "$MODIFIED_DEB_PATH"
 cd - > /dev/null
 
 if [ ! -f "$MODIFIED_DEB_PATH" ]; then
@@ -387,7 +387,7 @@ EOF
 OUTPUT_DEB="${NEW_PKGNAME}_${NEW_VERSION}_${ORIG_ARCH}.deb"
 
 # 打包
-fakeroot dpkg-deb --build "$PKG_BUILD_DIR" "$OUTPUT_DEB"
+fakeroot amber-pm-debug dpkg-deb --build "$PKG_BUILD_DIR" "$OUTPUT_DEB"
 
 log.info  "转换完成！"
 log.info "生成的APM包: $OUTPUT_DEB"
