@@ -1,0 +1,148 @@
+#!/bin/bash
+
+# 发送通知
+
+function get_upgradable_list(){
+		output=$(env LANGUAGE=en_US amber-pm-debug aptss list --upgradable  | awk NR\>1)
+
+		IFS_OLD="$IFS"
+		IFS=$'\n'
+
+		for line in $output ; do
+			PKG_NAME=$(echo $line | awk -F '/' '{print $1}')
+			PKG_NEW_VER=$(echo $line | awk -F ' ' '{print $2}')
+			PKG_CUR_VER=$(echo $line | awk -F ' ' '{print $6}' | awk -F ']' '{print $1}')
+			echo "${PKG_NAME} ${PKG_NEW_VER} ${PKG_CUR_VER}"
+		done
+
+		IFS="$IFS_OLD"
+
+}
+
+function get_current_user() {
+    # 优先通过 who 命令获取用户
+    local user
+    user=$(who | awk '{print $1}' | head -n 1 2>/dev/null)
+
+    # 如果 who 无输出，则通过 loginctl 获取
+    if [[ -z "$user" ]]; then
+        user=$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $3}' | head -n 1)
+    fi
+
+    # 返回最终结果（可能为空）
+    echo "${user}"
+}
+
+function notify-send() {
+    # Detect user using the display
+    local user=$(get_current_user)
+
+    # Detect uid of the user
+    local uid=$(id -u $user)
+
+    sudo -u $user  DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus notify-send "$@"
+}
+
+# 检测网络链接畅通
+function network-check() {
+    # 超时时间
+    local timeout=15
+
+    # 目标网站
+    local target=www.baidu.com
+
+    # 获取响应状态码
+    local ret_code=$(curl -I -s --connect-timeout ${timeout} ${target} -w %{http_code} | tail -n1)
+
+    if [ "$ret_code" = "200" ]; then
+        # 网络畅通
+        return 0
+    else
+        # 网络不畅通
+        return 1
+    fi
+}
+
+# 初始化等待时间和最大等待时间
+initial_wait_time=15  # 初始等待时间 15 秒
+max_wait_time=$((12 * 3600))  # 最大等待时间 12 小时
+
+# 检测网络，若不通则进行重试，采用指数退避算法
+wait_time=$initial_wait_time
+while ! network-check; do
+    echo "$TRANSHELL_CONTENT_NETWORK_FAIL"
+    echo "Waiting for network to recover... Retrying in ${wait_time} seconds."
+
+    sleep $wait_time
+    wait_time=$((wait_time * 2))  # 等待时间翻倍
+    if [ $wait_time -gt $max_wait_time ]; then
+        wait_time=$max_wait_time  # 最大等待时间限制为12小时
+    fi
+done
+
+# 每日更新星火源文件
+
+
+updatetext=$(LANGUAGE=en_US apm update 2>&1)
+
+# 在网络恢复后，继续更新操作
+retry_count=0
+max_retries=12  # 最大重试次数，防止死循环
+
+until ! echo $updatetext | grep -q "E:"; do
+    if [ $retry_count -ge $max_retries ]; then
+        echo "Reached maximum retry limit for apm update."
+        exit 1
+    fi
+
+    echo "Update failed...Will retry in 15sec"
+    sleep 15
+    updatetext=$(LANGUAGE=en_US apm update 2>&1)
+    retry_count=$((retry_count + 1))
+done
+
+update_app_number=$(env LANGUAGE=en_US apm list --upgradable 2>/dev/null | grep -c upgradable)
+echo "update_app_number is $update_app_number" 
+
+if [ "$update_app_number" -le 0 ]; then
+    exit 0
+fi
+
+# 获取用户选择的要更新的应用
+PKG_LIST="$(get_upgradable_list)"
+# 指定分隔符为 \n
+IFS_OLD="$IFS"
+IFS=$'\n'
+
+for line in $PKG_LIST; do
+#    PKG_NAME=$(echo $line | awk -F ' ' '{print $1}')
+#    PKG_NEW_VER=$(echo $line | awk -F ' ' '{print $2}')
+#    PKG_CUR_VER=$(echo $line | awk -F ' ' '{print $3}')
+
+#    amber-pm-debug dpkg --compare-versions $PKG_NEW_VER le $PKG_CUR_VER
+#
+#    if [ $? -eq 0 ]; then
+#        let update_app_number=$update_app_number-1
+#        continue
+#    fi
+
+    # 检测是否是 hold 状态
+    PKG_STA=$(amber-pm-debug dpkg-query -W -f='\''\${db:Status-Want}'\' $PKG_NAME)
+#PKG_STA=$(dpkg-query -W -f='${db:Status-Want}' $PKG_NAME)
+    if [ "$PKG_STA" = "hold" ]; then
+        let update_app_number=$update_app_number-1
+    fi
+done
+
+# 还原分隔符
+IFS="$IFS_OLD"
+if [ $update_app_number -le 0 ]; then
+    exit 0
+fi
+
+# 如果都是hold或者版本一致的那就直接退出，否则把剩余的给提醒了
+# TODO: 除了apt-mark hold之外额外有一个禁止检查列表
+
+
+notify-send -a apm "APM 琥珀应用包" "有 $update_app_number 个应用可以更新啦，apm list --upgradable 以查看" || true # Some machine don't have bus, or who command just print nothing.
+
