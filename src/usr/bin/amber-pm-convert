@@ -340,7 +340,7 @@ else
 fi
 EOF
 
-chmod +x "$PKG_BUILD_DIR/DEBIAN/postinst"
+chmod +x "$PKG_BUILD_DIR/DEBIAN/postrm"
 
 # 8. 复制文件到新的APM包
 log.info "复制文件到新的APM包..."
