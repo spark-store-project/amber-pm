@@ -1,17 +1,40 @@
 #!/bin/bash
 
-bash(){
+function bash(){
 /usr/bin/bash --rcfile <(cat ~/.bashrc; echo "PS1=\"\[\e[37;40m\][\[\e[32;40m\]\u\[\e[37;40m\]@Amber-PM \[\e[36;40m\]\w\[\e[0m\]]\\\$ \"") $@
 }
 export -f bash
-
+function ensure_dir() {
+    local dir="$1"
+    
+    # 检查目录是否为空
+    if [ -z "$dir" ]; then
+        echo "错误: 目录路径不能为空"
+        return 1
+    fi
+    
+    # 检查目录是否存在
+    if [ ! -d "$dir" ]; then
+        echo "目录 '$dir' 不存在，正在创建..."
+        if mkdir -p "$dir"; then
+            echo "成功创建目录 '$dir'"
+            return 0
+        else
+            echo "错误: 无法创建目录 '$dir'"
+            return 1
+        fi
+    else
+        echo "目录 '$dir' 已存在"
+        return 0
+    fi
+}
 chrootEnvPath="${chrootEnvPath:-$(pwd)/ace-env}"
 
-
+APM_PKG_NAME="${APM_PKG_NAME:-apm-general}"
 
 non_root_user=$(who  | awk '{print $1}' | head -n 1)
 uid=$(id -u $non_root_user)
-
+ensure_dir $HOME/.apm/${APM_PKG_NAME}/.deepinwine
 
 #### This part is for args pharm
 if [ "$1" = "" ];then
@@ -103,6 +126,7 @@ BIND_DIRS=(
     "--ro-bind-try /usr/share/fonts /usr/local/share/fonts"
     "--dev-bind-try /etc/resolv.conf /etc/resolv.conf"
     "--dev-bind-try /home /home"
+    "--dev-bind-try $HOME/.apm/${APM_PKG_NAME}/.deepinwine $HOME/.deepinwine"
 )
 EXTRA_ARGS=(
     "--cap-add CAP_SYS_ADMIN"

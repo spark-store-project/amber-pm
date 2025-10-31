@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION=1.1.1
+VERSION=1.1.2
 # 获取脚本名称用于帮助信息
 SCRIPT_NAME=$(basename "$0")
 PATH_PREFIX=/var/lib/apm/apm/files/ace-env/
@@ -301,7 +301,7 @@ case "$1" in
         fi
         
         coredir=$pkg
-
+        export APM_PKG_NAME=$pkg
 
         # 检测是否有额外命令参数
         if [ $# -gt 0 ]; then
