@@ -319,8 +319,8 @@ for BASENAME in "${BASENAMES[@]}"; do
     log.info "  写入: $BASENAME"
 done
 
-# 创建postinst脚本
-cat > "$PKG_BUILD_DIR/DEBIAN/postinst" << 'EOF'
+# 创建postrm脚本
+cat > "$PKG_BUILD_DIR/DEBIAN/postrm" << 'EOF'
 #!/bin/bash
 PACKAGE_NAME="$DPKG_MAINTSCRIPT_PACKAGE"
 
