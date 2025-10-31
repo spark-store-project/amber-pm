@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION=1.1.0
+VERSION=1.1.1
 # 获取脚本名称用于帮助信息
 SCRIPT_NAME=$(basename "$0")
 PATH_PREFIX=/var/lib/apm/apm/files/ace-env/
@@ -21,22 +21,28 @@ Usage:
 Commands:
   install           安装软件包
   remove            卸载软件包
+  run <package>     运行指定软件包的可执行文件
+
   update            更新软件包信息
+  hold              锁定软件包版本
+  unhold            解锁软件包版本
+  full-upgrade      升级全部软件包
   list              查看可用软件包信息
   search            搜索软件包
+
   download          下载包
   show              展示包信息
   clean             清除缓存软件包
   autoremove        自动移除不需要的包
-  full-upgrade      完全升级软件包
-  run <package>     运行指定软件包的可执行文件
   ssaudit <path>    使用 ssaudit 进行本地软件安装，详情见 spark-store
   debug             显示调试系统信息并进入调试环境
+
   amber             彩蛋功能
   xmp360            彩蛋功能
   bronya            彩蛋功能
 
   -h, --help        显示此帮助信息
+  -v, --version     展示APM版本号
 
 EOF
 }
@@ -242,6 +248,18 @@ case "$1" in
         exit $exit_code
     fi
     ;;
+    hold|unhold)
+    command=$1
+    shift
+    amber-pm-debug apt-mark "$command" "$@"
+        exit_code=$?
+    if [ $exit_code -eq 0 ]; then
+        log.info "Operation successful"
+    else
+        log.error "Error: Operation failed"
+        exit $exit_code
+    fi
+    ;;
 
    remove|autoremove|purge|autopurge)
         # 特殊APT命令：移除第一个参数后传递其余参数
@@ -297,10 +315,10 @@ case "$1" in
         fi
         ;;
     debug)
-        debug_info
+        debug_info $@
         ;;
     ssaudit)
-        amber-pm-debug ssaudit "$@" --native
+        amber-pm-debug ssaudit $@ --native
         exit_code=$?
     if [ $exit_code -eq 0 ]; then
         log.info "Operation successful"
@@ -314,6 +332,9 @@ case "$1" in
         ;;
     -h|--help)
         show_help
+        ;;
+    -v|--version)
+        echo "$VERSION"
         ;;
     amber)
         amber_egg
