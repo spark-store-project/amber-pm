@@ -7,6 +7,10 @@ log.info() { echo -e "[\e[96mINFO\e[0m]:  \e[1m$*\e[0m"; }
 log.debug()  { echo -e "[\e[32mDEBUG\e[0m]: \e[1m$*\e[0m"; }
 SCRIPT_NAME=$(basename "$0")
 
+if ! command -v dpkg > /dev/null ;then
+log.error "若想使用APM软件包转换器，您需先安装dpkg"
+exit 1
+fi
 # 显示用法信息
 usage() {
     echo "用法: $SCRIPT_NAME --base <basename> [--base <basename> ...] <deb文件路径> [--pkgname <包名>] [--version <版本号>]"
@@ -274,7 +278,7 @@ mkdir -p "$MODIFIED_DEB_DIR/data"
 cp -r "$EXTRACT_DIR"/* "$MODIFIED_DEB_DIR/" 2>/dev/null || true
 
 # 使用fakeroot重新打包
-cd "$MODIFIED_DEB_DIR" && fakeroot amber-pm-debug dpkg-deb --build -Z none . "$MODIFIED_DEB_PATH"
+cd "$MODIFIED_DEB_DIR" && fakeroot  dpkg-deb --build -Z none . "$MODIFIED_DEB_PATH"
 cd - > /dev/null
 
 if [ ! -f "$MODIFIED_DEB_PATH" ]; then
@@ -387,7 +391,7 @@ EOF
 OUTPUT_DEB="${NEW_PKGNAME}_${NEW_VERSION}_${ORIG_ARCH}.deb"
 
 # 打包
-fakeroot amber-pm-debug dpkg-deb --build "$PKG_BUILD_DIR" "$OUTPUT_DEB"
+fakeroot  dpkg-deb --build "$PKG_BUILD_DIR" "$OUTPUT_DEB"
 
 log.info  "转换完成！"
 log.info "生成的APM包: $OUTPUT_DEB"
