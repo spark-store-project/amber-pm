@@ -41,7 +41,7 @@ process_directory() {
 }
 
 ensure_dir "/usr/local/share/applications/"
-ensue_dir "/usr/local/share/icons/"
+ensure_dir "/usr/local/share/icons/"
 # 处理 applications 目录
 process_directory "/var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir/applications/" \
                   "/usr/local/share/applications/" "Applications"
