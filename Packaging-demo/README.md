@@ -76,6 +76,14 @@ PACKAGE_NAME="$DPKG_MAINTSCRIPT_PACKAGE"
 if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
     echo "清理卸载残留"
     rm -rf "/var/lib/apm/$PACKAGE_NAME"
+for username in $(ls /home)
+    do
+        echo /home/$username
+        if [ -d "/home/$username/.apm/$PACKAGE_NAME" ]
+        then
+            rm -fr "/home/$username/.apm/$PACKAGE_NAME"
+        fi
+done
 else
     echo "非卸载，跳过清理"
 fi
