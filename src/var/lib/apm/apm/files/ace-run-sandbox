@@ -33,7 +33,13 @@ APM_PKG_NAME="${APM_PKG_NAME:-apm-general}"
 
 non_root_user=$(who  | awk '{print $1}' | head -n 1)
 uid=$(id -u $non_root_user)
-ensure_dir $HOME/.apm/${APM_PKG_NAME}/.deepinwine
+ensure_dir $HOME/.apm/${APM_PKG_NAME}/
+ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DESKTOP))
+ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DOCUMENTS))
+ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir PICTURES))
+ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DOWNLOAD))
+ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir VIDEOS))
+ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir MUSIC))
 
 
 
@@ -128,7 +134,13 @@ BIND_DIRS=(
     "--ro-bind-try /usr/share/fonts /usr/local/share/fonts"
     "--dev-bind-try /etc/resolv.conf /etc/resolv.conf"
     "--dev-bind-try /home /home"
-    "--dev-bind-try $HOME/.apm/${APM_PKG_NAME}/.deepinwine $HOME/.deepinwine"
+    "--dev-bind-try $HOME/.apm/${APM_PKG_NAME}/ $HOME/"
+    "--dev-bind-try $(xdg-user-dir DESKTOP) $(xdg-user-dir DESKTOP)"
+    "--dev-bind-try $(xdg-user-dir DOCUMENTS) $(xdg-user-dir DOCUMENTS)"
+    "--dev-bind-try $(xdg-user-dir PICTURES) $(xdg-user-dir PICTURES)"
+    "--dev-bind-try $(xdg-user-dir DOWNLOAD) $(xdg-user-dir DOWNLOAD)"
+    "--dev-bind-try $(xdg-user-dir VIDEOS) $(xdg-user-dir VIDEOS)"
+    "--dev-bind-try $(xdg-user-dir MUSIC) $(xdg-user-dir MUSIC)"
 )
 EXTRA_ARGS=(
     "--cap-add CAP_SYS_ADMIN"
