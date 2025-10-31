@@ -24,7 +24,6 @@ function ensure_dir() {
             return 1
         fi
     else
-        echo "目录 '$dir' 已存在"
         return 0
     fi
 }
