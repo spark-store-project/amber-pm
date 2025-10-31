@@ -22,6 +22,7 @@ Commands:
   install           安装软件包
   remove            卸载软件包
   run <package>     运行指定软件包的可执行文件
+  sandbox-run <package> 运行指定软件包的可执行文件（主目录沙箱化）
 
   update            更新软件包信息
   hold              锁定软件包版本
@@ -53,7 +54,11 @@ apm_exec(){
     local lowerdirs=()
     local current_dir="${PATH_PREFIX}/var/lib/apm/${coredir}"  # 当前目录开始
     local next_info_file=""
-
+    if [[ "$APM_USE_SANDBOX" = "1" ]];then
+    APM_RUN_EXEC=/var/lib/apm/apm/files/ace-run-sandbox
+    else
+    APM_RUN_EXEC=/var/lib/apm/apm/files/ace-run
+    fi
     while : ; do
         # 构建info文件的路径
         next_info_file="${current_dir}/info"
@@ -105,7 +110,7 @@ apm_exec(){
     fuse-overlayfs -o lowerdir="$lowerdir",upperdir="${PATH_PREFIX}/var/lib/apm/${coredir}/files/core/",workdir="${PATH_PREFIX}/var/lib/apm/${coredir}/files/work/" "/tmp/apm/${coredir}"
     
     # 执行命令
-    chrootEnvPath="/tmp/apm/${coredir}" /var/lib/apm/apm/files/ace-run "$@"
+    chrootEnvPath="/tmp/apm/${coredir}" ${APM_RUN_EXEC} "$@"
     
     # 卸载
     umount "/tmp/apm/${coredir}"
@@ -313,6 +318,12 @@ case "$1" in
             log.info "Usage: $SCRIPT_NAME run $pkg [EXEC_PATH]"
             exit 1
         fi
+        ;;
+   sandbox-run)
+        # 运行包命令：第二个参数必须是包名
+        export APM_USE_SANDBOX=1
+        shift
+        $0 run "$@"
         ;;
     debug)
         shift
