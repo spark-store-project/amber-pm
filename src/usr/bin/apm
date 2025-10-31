@@ -315,6 +315,7 @@ case "$1" in
         fi
         ;;
     debug)
+        shift
         debug_info $@
         ;;
     ssaudit)
