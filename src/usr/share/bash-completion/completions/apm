@@ -44,7 +44,7 @@ _apm()
         "update"
         "upgrade" "full-upgrade" "dist-upgrade"
         "run"
-        "run-sandbox"
+        "sandbox-run"
         "help"
         "source" "build-dep"
         "clean" "autoclean"
@@ -239,7 +239,7 @@ fi
                     command grep "^Source: $cur" | sort -u | cut -f2 -d" " ) )
                 return 0
                 ;;
-            run|run-sandbox)
+            run|sandbox-run)
                 COMPREPLY=( $( compgen -W "$(apm_run_compgen)" "$cur" ) )
                 return 0
                 ;;
