@@ -5,10 +5,8 @@ systemctl disable apm-daily-update
 
 
 
-if [ "$1" = "remove" ] ;then
-echo "执行卸载操作，您的容器仍然被保留在 /var/lib/apm/ 下。请执行 sudo apt purge apm 以清理"
+if [ "$1" = "remove" ] || [ "$1" = "purge" ];then
 
-elif  [ "$1" = "purge" ];then
 echo "清理卸载残留"
 
 rm -rf /var/lib/apm/
