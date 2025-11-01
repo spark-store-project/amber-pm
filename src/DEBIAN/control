@@ -1,9 +1,9 @@
 Package: apm
 Source: amber-ce
 Version: 1.1.2
-Architecture: amd64
+Architecture: arm64
 Maintainer: shenmo <shenmo@spark-app.store>
-Installed-Size: 48724
+Installed-Size: 46496
 Depends: bubblewrap, flatpak,  policykit-1 | pkexec | polkit-1 | polkit, systemd, procps,coreutils,fuse-overlayfs,xz-utils,libnotify-bin,curl,xdg-user-dirs
 Section: misc
 Conflicts: ace-host-integration
