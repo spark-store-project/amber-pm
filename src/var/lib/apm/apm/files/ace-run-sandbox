@@ -34,12 +34,12 @@ APM_PKG_NAME="${APM_PKG_NAME:-apm-general}"
 non_root_user=$(who  | awk '{print $1}' | head -n 1)
 uid=$(id -u $non_root_user)
 ensure_dir $HOME/.apm/${APM_PKG_NAME}/
-ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DESKTOP))
-ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DOCUMENTS))
-ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir PICTURES))
-ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DOWNLOAD))
-ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir VIDEOS))
-ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir MUSIC))
+#ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DESKTOP))
+#ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DOCUMENTS))
+#ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir PICTURES))
+#ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DOWNLOAD))
+#ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir VIDEOS))
+#ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir MUSIC))
 
 
 
