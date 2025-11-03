@@ -3,6 +3,16 @@
 if [[ ! -e "/usr/share/gxde-api" ]] && ! grep -q "Kylin" /etc/os-release; then
     exit 0 # No needed
 fi
+
+# 确定目标目录
+if grep -q "Kylin" /etc/os-release; then
+    TARGET_BASE="/usr/share"
+    echo "检测到麒麟系统，使用目标目录: $TARGET_BASE"
+else
+    TARGET_BASE="/usr/local/share"
+    echo "检测到GXDE环境，使用目标目录: $TARGET_BASE"
+fi
+
 function ensure_dir() {
     local dir="$1"
     
@@ -26,6 +36,7 @@ function ensure_dir() {
         return 0
     fi
 }
+
 # 函数：检查目录并创建符号链接
 process_directory() {
     local source_dir="$1"
@@ -40,15 +51,17 @@ process_directory() {
     fi
 }
 
-ensure_dir "/usr/local/share/applications/"
-ensure_dir "/usr/local/share/icons/"
+# 使用动态确定的目标目录
+ensure_dir "$TARGET_BASE/applications/"
+ensure_dir "$TARGET_BASE/icons/"
+
 # 处理 applications 目录
 process_directory "/var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir/applications/" \
-                  "/usr/local/share/applications/" "Applications"
+                  "$TARGET_BASE/applications/" "Applications"
 
 # 处理 icons 目录
 process_directory "/var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir/icons/" \
-                  "/usr/local/share/icons/" "Icons"
+                  "$TARGET_BASE/icons/" "Icons"
 
 # 等待所有后台任务完成
 wait
