@@ -16,6 +16,10 @@ APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上
 > 
 > OverlayFS 原理解析：[https://www.cnblogs.com/arnoldlu/p/13055501.html](https://www.cnblogs.com/arnoldlu/p/13055501.html)。
 
+## 体验
+
+前往右侧的 [发行版](releases) 体验
+
 ## 使用方法
 ```
 APM - Amber Package Manager 1.0.10
