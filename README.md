@@ -18,7 +18,9 @@ APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上
 
 ## 体验
 
-前往右侧的 [发行版](releases) 体验
+前往右侧的 [发行版](https://gitee.com/amber-ce/amber-pm/releases/) 即可下载体验
+
+目前支持 Debian 10+ , Arch Linux , fedora 42/43, openSUSE(测试) ,deepin/UOS 20+ , Ubuntu 20+ , 银河麒麟v10sp1，openkylin
 
 ## 使用方法
 ```
