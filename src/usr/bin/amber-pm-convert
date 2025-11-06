@@ -231,6 +231,7 @@ dpkg -e "$DEB_PATH" "$MODIFIED_DEB_DIR/DEBIAN"
 DESKTOP_MODIFIED=false
 find "$EXTRACT_DIR" -name "*.desktop" | while read -r desktop_file; do
     log.info "处理桌面文件: $desktop_file"
+    busybox dos2unix $desktop_file
     DESKTOP_MODIFIED=true
 
     # 在Exec和TryExec行前追加 "apm run $NEW_PKGNAME"
