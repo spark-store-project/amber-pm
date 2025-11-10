@@ -240,10 +240,11 @@ find "$EXTRACT_DIR" -name "*.desktop" | while read -r desktop_file; do
         sed -i 's/^Exec=\(.*\)$/Exec=apm run '"$NEW_PKGNAME"' \1/' "$desktop_file"
     fi
     
-    # 处理TryExec行
-    if grep -q '^TryExec=' "$desktop_file"; then
-        sed -i 's/^TryExec=\(.*\)$/TryExec=apm run '"$NEW_PKGNAME"' \1/' "$desktop_file"
-    fi
+# 处理TryExec行 - 直接删除
+if grep -q '^TryExec=' "$desktop_file"; then
+    sed -i '/^TryExec=/d' "$desktop_file"
+    log.info "已删除TryExec行"
+fi
 
     # 处理Icon路径
     icon_line=$(grep "^Icon=" "$desktop_file")
@@ -400,7 +401,7 @@ EOF
 OUTPUT_DEB="${NEW_PKGNAME}_${NEW_VERSION}_${ORIG_ARCH}.deb"
 
 # 打包
-fakeroot  dpkg-deb --build "$PKG_BUILD_DIR" "$OUTPUT_DEB"
+fakeroot  dpkg-deb -Z xz --build "$PKG_BUILD_DIR" "$OUTPUT_DEB"
 
 log.info  "转换完成！"
 log.info "生成的APM包: $OUTPUT_DEB"

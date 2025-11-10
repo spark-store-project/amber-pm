@@ -33,17 +33,10 @@ APM_PKG_NAME="${APM_PKG_NAME:-apm-general}"
 
 non_root_user=$(who  | awk '{print $1}' | head -n 1)
 uid=$(id -u $non_root_user)
-ensure_dir $HOME/.apm/${APM_PKG_NAME}/
+ensure_dir $HOME/.apm/${APM_PKG_NAME}/.deepinwine
 
-# 根据沙盒模式决定是否创建其他目录
-if [ "${APM_USE_SANDBOX:-0}" = "1" ]; then
-    ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DESKTOP))
-    ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DOCUMENTS))
-    ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir PICTURES))
-    ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DOWNLOAD))
-    ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir VIDEOS))
-    ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir MUSIC))
-fi
+
+
 
 #### This part is for args pharm
 if [ "$1" = "" ];then
@@ -99,6 +92,13 @@ for directory in "/usr/share/icons"/*; do
         fi
     fi
 done
+
+
+
+
+
+
+
 }
 ##########合成bwrap 3. 环境变量和目录绑定配置段
 # 添加环境变量和其他初始设置
@@ -111,8 +111,7 @@ ENV_VARS=(
     "XDG_DATA_DIRS /amber-ce-tools/additional-data-dir-in-container:\$XDG_DATA_DIRS"
 )
 
-# 基础绑定目录（始终绑定）
-BASE_BIND_DIRS=(
+BIND_DIRS=(
     "--dev-bind $chrootEnvPath/ /"
     "--dev-bind-try /media /media"
     "--dev-bind-try /mnt /mnt"
@@ -129,31 +128,11 @@ BASE_BIND_DIRS=(
     "--ro-bind-try /usr/share/fonts /usr/local/share/fonts"
     "--dev-bind-try /etc/resolv.conf /etc/resolv.conf"
     "--dev-bind-try /home /home"
-    "--dev-bind-try $HOME/.apm/${APM_PKG_NAME}/ $HOME/"
+    "--dev-bind-try $HOME/.apm/${APM_PKG_NAME}/.deepinwine $HOME/.deepinwine"
 )
-
-# 沙盒模式下的额外绑定目录
-SANDBOX_BIND_DIRS=(
-    "--dev-bind-try $(xdg-user-dir DESKTOP) $(xdg-user-dir DESKTOP)"
-    "--dev-bind-try $(xdg-user-dir DOCUMENTS) $(xdg-user-dir DOCUMENTS)"
-    "--dev-bind-try $(xdg-user-dir PICTURES) $(xdg-user-dir PICTURES)"
-    "--dev-bind-try $(xdg-user-dir DOWNLOAD) $(xdg-user-dir DOWNLOAD)"
-    "--dev-bind-try $(xdg-user-dir VIDEOS) $(xdg-user-dir VIDEOS)"
-    "--dev-bind-try $(xdg-user-dir MUSIC) $(xdg-user-dir MUSIC)"
+EXTRA_ARGS=(
+    "--cap-add CAP_SYS_ADMIN"
 )
-
-# 非沙盒模式下的绑定目录（只绑定.deepinwine）
-NON_SANDBOX_BIND_DIRS=(
-    "--dev-bind-try $HOME/.deepinwine $HOME/.deepinwine"
-)
-
-# 根据 APM_USE_BWRAP 决定是否添加 CAP_SYS_ADMIN
-EXTRA_ARGS=()
-if [ "${APM_USE_BWRAP:-0}" != "1" ]; then
-    EXTRA_ARGS=(
-        "--cap-add CAP_SYS_ADMIN"
-    )
-fi
 
 EXTRA_SCRIPTS=(
 #    cursor_theme_dir_integration
@@ -165,23 +144,10 @@ for var in "${ENV_VARS[@]}"; do
     add_env_var $var
 done
 
-# 添加基础绑定目录
-for var in "${BASE_BIND_DIRS[@]}"; do
+for var in "${BIND_DIRS[@]}"; do
     add_command "$var"
 done
 
-# 根据沙盒模式添加不同的绑定目录
-if [ "${APM_USE_SANDBOX:-0}" = "1" ]; then
-    for var in "${SANDBOX_BIND_DIRS[@]}"; do
-        add_command "$var"
-    done
-else
-    for var in "${NON_SANDBOX_BIND_DIRS[@]}"; do
-        add_command "$var"
-    done
-fi
-
-# 添加额外参数
 for var in "${EXTRA_ARGS[@]}"; do
     add_command "$var"
 done
@@ -198,3 +164,5 @@ add_command "bash -c \"${container_command}\""
 
 # 注意: 实际执行时，请确保所有变量（如 $uid, $chrootEnvPath 等）都已正确定义
 eval ${EXEC_COMMAND}
+
+
