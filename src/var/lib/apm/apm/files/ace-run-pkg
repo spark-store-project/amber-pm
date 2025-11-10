@@ -1,47 +1,16 @@
 #!/bin/bash
 
-function bash(){
+bash(){
 /usr/bin/bash --rcfile <(cat ~/.bashrc; echo "PS1=\"\[\e[37;40m\][\[\e[32;40m\]\u\[\e[37;40m\]@Amber-PM \[\e[36;40m\]\w\[\e[0m\]]\\\$ \"") $@
 }
 export -f bash
-function ensure_dir() {
-    local dir="$1"
-    
-    # 检查目录是否为空
-    if [ -z "$dir" ]; then
-        echo "错误: 目录路径不能为空"
-        return 1
-    fi
-    
-    # 检查目录是否存在
-    if [ ! -d "$dir" ]; then
-        echo "目录 '$dir' 不存在，正在创建..."
-        if mkdir -p "$dir"; then
-            echo "成功创建目录 '$dir'"
-            return 0
-        else
-            echo "错误: 无法创建目录 '$dir'"
-            return 1
-        fi
-    else
-        return 0
-    fi
-}
+
 chrootEnvPath="${chrootEnvPath:-$(pwd)/ace-env}"
 
-APM_PKG_NAME="${APM_PKG_NAME:-apm-general}"
+
 
 non_root_user=$(who  | awk '{print $1}' | head -n 1)
 uid=$(id -u $non_root_user)
-ensure_dir $HOME/.apm/${APM_PKG_NAME}/
-#ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DESKTOP))
-#ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DOCUMENTS))
-#ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir PICTURES))
-#ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DOWNLOAD))
-#ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir VIDEOS))
-#ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir MUSIC))
-
-
 
 
 #### This part is for args pharm
@@ -120,6 +89,8 @@ ENV_VARS=(
 BIND_DIRS=(
     "--dev-bind $chrootEnvPath/ /"
     "--dev-bind-try /media /media"
+    "--dev-bind-try /root /root"
+    "--dev-bind-try /www /www"
     "--dev-bind-try /mnt /mnt"
     "--dev-bind-try /tmp /tmp"
     "--dev-bind-try /data /data"
@@ -129,20 +100,12 @@ BIND_DIRS=(
     "--dev-bind /run /run"
     "--dev-bind-try /run/user/\$uid/pulse /run/user/\$uid/pulse"
     "--dev-bind / /host"
-    "--ro-bind-try /usr/share/themes /usr/local/share/themes"
-    "--ro-bind-try /usr/share/icons /usr/share/icons"
-    "--ro-bind-try /usr/share/fonts /usr/local/share/fonts"
     "--dev-bind-try /etc/resolv.conf /etc/resolv.conf"
     "--dev-bind-try /home /home"
-    "--dev-bind-try $HOME/.apm/${APM_PKG_NAME}/ $HOME/"
-    "--dev-bind-try $(xdg-user-dir DESKTOP) $(xdg-user-dir DESKTOP)"
-    "--dev-bind-try $(xdg-user-dir DOCUMENTS) $(xdg-user-dir DOCUMENTS)"
-    "--dev-bind-try $(xdg-user-dir PICTURES) $(xdg-user-dir PICTURES)"
-    "--dev-bind-try $(xdg-user-dir DOWNLOAD) $(xdg-user-dir DOWNLOAD)"
-    "--dev-bind-try $(xdg-user-dir VIDEOS) $(xdg-user-dir VIDEOS)"
-    "--dev-bind-try $(xdg-user-dir MUSIC) $(xdg-user-dir MUSIC)"
 )
 EXTRA_ARGS=(
+    "--hostname Amber-PM"
+    "--unshare-uts"
     "--cap-add CAP_SYS_ADMIN"
 )
 
@@ -176,5 +139,4 @@ add_command "bash -c \"${container_command}\""
 
 # 注意: 实际执行时，请确保所有变量（如 $uid, $chrootEnvPath 等）都已正确定义
 eval ${EXEC_COMMAND}
-
 
