@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION=1.1.2
+VERSION=1.1.3
 # 获取脚本名称用于帮助信息
 SCRIPT_NAME=$(basename "$0")
 PATH_PREFIX=/var/lib/apm/apm/files/ace-env/
@@ -23,6 +23,7 @@ Commands:
   remove            卸载软件包
   run <package>     运行指定软件包的可执行文件
   sandbox-run <package> 运行指定软件包的可执行文件（主目录沙箱化）
+  bwrap-run <package> 运行指定软件包的可执行文件（使用特殊的挂载参数以支持bwrap）
 
   update            更新软件包信息
   hold              锁定软件包版本
@@ -54,11 +55,10 @@ apm_exec(){
     local lowerdirs=()
     local current_dir="${PATH_PREFIX}/var/lib/apm/${coredir}"  # 当前目录开始
     local next_info_file=""
-    if [[ "$APM_USE_SANDBOX" = "1" ]];then
-    APM_RUN_EXEC=/var/lib/apm/apm/files/ace-run-sandbox
-    else
+    
+    # 使用统一的 ace-run 脚本
     APM_RUN_EXEC=/var/lib/apm/apm/files/ace-run
-    fi
+    
     while : ; do
         # 构建info文件的路径
         next_info_file="${current_dir}/info"
@@ -241,7 +241,7 @@ case "$1" in
     apm-nvidia-toggle
     amber-pm-gxde-desktop-fix
     ;;
-    download|search|policy|list|update|clean|show)
+    download|search|policy|list|update|clean|show|depends|rdepends|changelog|moo)
     command=$1
     shift
     amber-pm-debug aptss "$command" "$@"
@@ -322,6 +322,12 @@ case "$1" in
    sandbox-run)
         # 运行包命令：第二个参数必须是包名
         export APM_USE_SANDBOX=1
+        shift
+        $0 run "$@"
+        ;;
+   bwrap-run)
+        # 运行包命令：使用特殊的挂载参数以支持bwrap
+        export APM_USE_BWRAP=1
         shift
         $0 run "$@"
         ;;
