@@ -129,11 +129,12 @@ BASE_BIND_DIRS=(
     "--ro-bind-try /usr/share/fonts /usr/local/share/fonts"
     "--dev-bind-try /etc/resolv.conf /etc/resolv.conf"
     "--dev-bind-try /home /home"
-    "--dev-bind-try $HOME/.apm/${APM_PKG_NAME}/ $HOME/"
+    "--dev-bind-try $HOME/.apm/${APM_PKG_NAME}/.deepinwine $HOME/.deepinwine"
 )
 
 # 沙盒模式下的额外绑定目录
 SANDBOX_BIND_DIRS=(
+    "--dev-bind-try $HOME/.apm/${APM_PKG_NAME}/ $HOME/"
     "--dev-bind-try $(xdg-user-dir DESKTOP) $(xdg-user-dir DESKTOP)"
     "--dev-bind-try $(xdg-user-dir DOCUMENTS) $(xdg-user-dir DOCUMENTS)"
     "--dev-bind-try $(xdg-user-dir PICTURES) $(xdg-user-dir PICTURES)"
