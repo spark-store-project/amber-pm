@@ -1,46 +1,59 @@
 #!/bin/bash
 
+# ============================================================
 # APM软件包转换器 - 将DEB包转换为APM格式
-log.warn() { echo -e "[\e[33mWARN\e[0m]:  \e[1m$*\e[0m"; }
-log.error()  { echo -e "[\e[31mERROR\e[0m]: \e[1m$*\e[0m"; }
-log.info() { echo -e "[\e[96mINFO\e[0m]:  \e[1m$*\e[0m"; }
-log.debug()  { echo -e "[\e[32mDEBUG\e[0m]: \e[1m$*\e[0m"; }
+# 支持手动模式 (--manual)，可在挂载后进入交互式shell操作
+# ============================================================
+
+log.warn()  { echo -e "[\e[33mWARN\e[0m]:  \e[1m$*\e[0m"; }
+log.error() { echo -e "[\e[31mERROR\e[0m]: \e[1m$*\e[0m"; }
+log.info()  { echo -e "[\e[96mINFO\e[0m]:  \e[1m$*\e[0m"; }
+log.debug() { echo -e "[\e[32mDEBUG\e[0m]: \e[1m$*\e[0m"; }
+
 SCRIPT_NAME=$(basename "$0")
 
 if ! command -v dpkg > /dev/null ;then
-log.error "若想使用APM软件包转换器，您需先安装dpkg"
-exit 1
+    log.error "若想使用APM软件包转换器，您需先安装dpkg"
+    exit 1
 fi
+
+# ------------------------
 # 显示用法信息
+# ------------------------
 usage() {
-    echo "用法: $SCRIPT_NAME --base <basename> [--base <basename> ...] <deb文件路径> [--pkgname <包名>] [--version <版本号>]"
+    echo "用法: $SCRIPT_NAME --base <basename> [--base <basename> ...] <deb文件路径> [--pkgname <包名>] [--version <版本号>] [--manual]"
     echo ""
     echo "参数说明:"
-    echo "  --basename   必填参数，指定基础环境名称，可多次使用指定多个基础环境"
+    echo "  --base       必填参数，指定基础环境名称，可多次使用指定多个基础环境"
     echo "  deb文件路径  必填参数，要转换的DEB文件路径"
     echo "  --pkgname    可选参数，指定新包的包名（默认使用原DEB包名）"
     echo "  --version    可选参数，指定新包的版本号（默认在原版本后追加'-apm'）"
+    echo "  --manual     可选参数，启用手动模式。挂载完成后将进入sudo ace-run-pkg bash供手动操作，退出后继续打包"
     echo ""
     echo "示例:"
     echo "  $SCRIPT_NAME --base amber-pm-trixie /path/to/package.deb"
     echo "  $SCRIPT_NAME --base amber-pm-bookworm-spark-wine /path/to/package.deb --pkgname new-pkg --version 1.0.0"
-    echo "最下层的base在最后面，从上到下写base"
+    echo "  $SCRIPT_NAME --base amber-pm-trixie /path/to/package.deb --manual"
+    echo ""
+    echo "提示：最下层的base在最后面，从上到下写base"
 }
 
-# 检查参数数量
+# ------------------------
+# 参数解析
+# ------------------------
 if [ $# -lt 3 ]; then
     log.error "错误：参数不足"
     usage
     exit 1
 fi
 
-# 解析参数
-BASENAMES=()  # 改为数组存储多个base
+BASENAMES=()
+BASENAMES_ORIG=()
 DEB_PATH=""
 PKGNAME=""
 VERSION=""
+MANUAL_MODE=false
 
-# 参数解析
 while [ $# -gt 0 ]; do
     case $1 in
         --base)
@@ -56,6 +69,10 @@ while [ $# -gt 0 ]; do
             VERSION="$2"
             shift 2
             ;;
+        --manual)
+            MANUAL_MODE=true
+            shift
+            ;;
         *)
             if [ -z "$DEB_PATH" ] && [ -f "$1" ]; then
                 DEB_PATH="$1"
@@ -69,14 +86,15 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# 检查必填参数
+# ------------------------
+# 参数检查
+# ------------------------
 if [ ${#BASENAMES[@]} -eq 0 ] || [ -z "$DEB_PATH" ]; then
     log.error "错误：至少需要一个--basename参数，且DEB文件路径为必填"
     usage
     exit 1
 fi
 
-# 检查DEB文件是否存在
 if [ ! -f "$DEB_PATH" ]; then
     log.error "错误：DEB文件不存在: $DEB_PATH"
     exit 1
@@ -88,15 +106,15 @@ for i in "${!BASENAMES[@]}"; do
     log.info "  基础环境 $((i+1)): ${BASENAMES[$i]}"
 done
 
-# 1. 创建临时工作目录
+# ------------------------
+# 创建工作目录
+# ------------------------
 CRAFT_DIR="$HOME/apm-craft-$$"
 log.info "创建临时工作目录: $CRAFT_DIR"
 mkdir -p "$CRAFT_DIR"/{core,work,mergedir,modified_deb}
 
-# 设置环境变量
 export CRAFT_DIR
 
-# 检查是否已挂载，避免重复挂载
 cleanup_mount() {
     if mountpoint -q "$CRAFT_DIR/mergedir"; then
         log.info "解除挂载: $CRAFT_DIR/mergedir"
@@ -104,7 +122,6 @@ cleanup_mount() {
     fi
 }
 
-# 清理函数
 cleanup() {
     log.info "开始清理..."
     cleanup_mount
@@ -114,10 +131,11 @@ cleanup() {
     fi
 }
 
-# 设置退出时清理
 trap cleanup EXIT
 
-# 递归获取info文件中的依赖
+# ------------------------
+# 递归解析依赖 base
+# ------------------------
 get_recursive_basenames() {
     local basename="$1"
     local base_dir="/var/lib/apm/apm/files/ace-env/var/lib/apm/$basename"
@@ -126,12 +144,9 @@ get_recursive_basenames() {
     if [ -f "$info_file" ]; then
         log.info "读取info文件: $info_file"
         while IFS= read -r base; do
-            # 跳过空行
             [[ -z "$base" ]] && continue
-            # 如果依赖的base没有被记录过，则递归添加
             if [[ ! " ${BASENAMES[*]} " =~ " $base " ]]; then
                 BASENAMES+=("$base")
-                # 递归获取依赖
                 get_recursive_basenames "$base"
             fi
         done < "$info_file"
@@ -140,12 +155,13 @@ get_recursive_basenames() {
     fi
 }
 
-# 递归获取所有基础环境
 for BASE in "${BASENAMES[@]}"; do
     get_recursive_basenames "$BASE"
 done
 
-# 检查DEB文件
+# ------------------------
+# 检查原DEB包信息
+# ------------------------
 log.info "检查原DEB包信息..."
 ORIG_PKGNAME=$(dpkg -f "$DEB_PATH" Package)
 ORIG_VERSION=$(dpkg -f "$DEB_PATH" Version)
@@ -155,19 +171,17 @@ log.info "原包名: $ORIG_PKGNAME"
 log.info "原版本: $ORIG_VERSION"
 log.info "原架构: $ORIG_ARCH"
 
-# 设置新包名和版本
 NEW_PKGNAME="${PKGNAME:-$ORIG_PKGNAME}"
 NEW_VERSION="${VERSION:-${ORIG_VERSION}-apm}"
 
 log.info "新包名: $NEW_PKGNAME"
 log.info "新版本: $NEW_VERSION"
-log.info "新架构: $ORIG_ARCH"
 
-# 2. 构建lowerdir路径（多个base按顺序叠放）
+# ------------------------
+# 构建lowerdir
+# ------------------------
 log.info "构建overlay lowerdir路径..."
 LOWERDIRS=()
-
-# 按顺序处理每个base（从第一个到最后一个，最后一个在最底层）
 for BASENAME in "${BASENAMES[@]}"; do
     ACE_ENV_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/ace-env"
     CORE_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/core"
@@ -180,26 +194,37 @@ for BASENAME in "${BASENAMES[@]}"; do
         LOWERDIRS+=("$CORE_PATH")
     else
         log.error "错误：基础环境路径不存在: $BASENAME"
-        log.error "  检查的路径: $ACE_ENV_PATH"
-        log.error "  检查的路径: $CORE_PATH"
         exit 1
     fi
 done
 
-# 将lowerdirs数组用冒号连接
 LOWERDIR=$(IFS=:; echo "${LOWERDIRS[*]}")
 log.debug "最终lowerdir: $LOWERDIR"
 
-# 4. 进行融合挂载
+# ------------------------
+# 挂载 overlay
+# ------------------------
 log.info "正在进行融合挂载..."
-
 sudo mount -t overlay overlay \
     -o "lowerdir=$LOWERDIR,upperdir=$CRAFT_DIR/core/,workdir=$CRAFT_DIR/work/" \
     "$CRAFT_DIR/mergedir"
-
 log.info "挂载完成"
 
-# 5. 在融合环境中安装修改后的DEB包
+# ------------------------
+# 手动模式支持
+# ------------------------
+if [ "$MANUAL_MODE" = true ]; then
+    log.info "已启用手动模式，进入交互式环境..."
+    log.info "提示：您现在处于融合挂载环境中，可使用 'ls', 'dpkg -i', 'aptss' 等命令检查和修改。"
+    log.info "输入 'exit' 退出后将继续执行打包流程。"
+    sudo -E /var/lib/apm/apm/files/ace-run-pkg bash || {
+        log.error "错误：手动模式 shell 启动失败"
+        exit 1
+    }
+    log.info "手动模式已退出，继续执行自动打包流程..."
+fi
+
+# 5. 在融合环境中测试安装DEB包
 log.info "在融合环境中测试安装DEB包..."
 
 # 更新包列表
