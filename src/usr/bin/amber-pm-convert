@@ -1,10 +1,6 @@
 #!/bin/bash
 
-# ============================================================
 # APM软件包转换器 - 将DEB包转换为APM格式
-# 支持手动模式 (--manual)，可在挂载后进入交互式shell操作
-# ============================================================
-
 log.warn()  { echo -e "[\e[33mWARN\e[0m]:  \e[1m$*\e[0m"; }
 log.error() { echo -e "[\e[31mERROR\e[0m]: \e[1m$*\e[0m"; }
 log.info()  { echo -e "[\e[96mINFO\e[0m]:  \e[1m$*\e[0m"; }
@@ -12,51 +8,48 @@ log.debug() { echo -e "[\e[32mDEBUG\e[0m]: \e[1m$*\e[0m"; }
 
 SCRIPT_NAME=$(basename "$0")
 
-if ! command -v dpkg > /dev/null ;then
+if ! command -v dpkg > /dev/null ; then
     log.error "若想使用APM软件包转换器，您需先安装dpkg"
     exit 1
 fi
 
-# ------------------------
 # 显示用法信息
-# ------------------------
 usage() {
-    echo "用法: $SCRIPT_NAME --base <basename> [--base <basename> ...] <deb文件路径> [--pkgname <包名>] [--version <版本号>] [--manual]"
+    echo "用法: $SCRIPT_NAME [--manual] --base <basename> [--base <basename> ...] <deb文件路径>"
+    echo "       或者在手动模式下不传入 DEB 文件： $SCRIPT_NAME --manual --base <basename> [--base <basename> ...]"
     echo ""
     echo "参数说明:"
-    echo "  --base       必填参数，指定基础环境名称，可多次使用指定多个基础环境"
-    echo "  deb文件路径  必填参数，要转换的DEB文件路径"
+    echo "  --manual     启用手动模式：融合挂载后打开交互 shell，退出 shell 后脚本继续"
+    echo "  --basename   必填参数（非手动模式下），指定基础环境名称，可多次使用"
+    echo "  deb文件路径  要转换的DEB文件路径（非手动且非空模式下必填）"
     echo "  --pkgname    可选参数，指定新包的包名（默认使用原DEB包名）"
     echo "  --version    可选参数，指定新包的版本号（默认在原版本后追加'-apm'）"
-    echo "  --manual     可选参数，启用手动模式。挂载完成后将进入sudo ace-run-pkg bash供手动操作，退出后继续打包"
     echo ""
     echo "示例:"
     echo "  $SCRIPT_NAME --base amber-pm-trixie /path/to/package.deb"
-    echo "  $SCRIPT_NAME --base amber-pm-bookworm-spark-wine /path/to/package.deb --pkgname new-pkg --version 1.0.0"
-    echo "  $SCRIPT_NAME --base amber-pm-trixie /path/to/package.deb --manual"
+    echo "  $SCRIPT_NAME --manual --base amber-pm-trixie   # 只融合挂载并进入手动 shell"
+    echo "  $SCRIPT_NAME --manual --base a --pkgname newpkg --version 1.2.3 /path/to/package.deb"
     echo ""
-    echo "提示：最下层的base在最后面，从上到下写base"
+    echo "说明: 最下层的base在最后面，从上到下写base"
 }
 
-# ------------------------
-# 参数解析
-# ------------------------
-if [ $# -lt 3 ]; then
-    log.error "错误：参数不足"
-    usage
-    exit 1
-fi
-
-BASENAMES=()
-BASENAMES_ORIG=()
+# 解析参数
+BASENAMES=()        # 存放实际用于构建 overlay 的 base（可能会被递归添加）
+BASENAMES_ORIG=()   # 存放用户原始输入的 base 列表（用于 control 中 Depends 等）
 DEB_PATH=""
 PKGNAME=""
 VERSION=""
 MANUAL_MODE=false
 
+# 简单参数解析（顺序敏感）
 while [ $# -gt 0 ]; do
-    case $1 in
+    case "$1" in
         --base)
+            if [ -z "$2" ]; then
+                log.error "--base 后需要跟名称"
+                usage
+                exit 1
+            fi
             BASENAMES+=("$2")
             BASENAMES_ORIG+=("$2")
             shift 2
@@ -73,12 +66,18 @@ while [ $# -gt 0 ]; do
             MANUAL_MODE=true
             shift
             ;;
+        -*)
+            log.error "未知选项: $1"
+            usage
+            exit 1
+            ;;
         *)
-            if [ -z "$DEB_PATH" ] && [ -f "$1" ]; then
+            # 非选项，视为 DEB 路径（只接受第一个非选项作为 DEB）
+            if [ -z "$DEB_PATH" ]; then
                 DEB_PATH="$1"
                 shift
             else
-                log.error "错误：未知参数或无效的DEB文件路径: $1"
+                log.error "未知参数或多余的参数: $1"
                 usage
                 exit 1
             fi
@@ -86,35 +85,48 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# ------------------------
-# 参数检查
-# ------------------------
-if [ ${#BASENAMES[@]} -eq 0 ] || [ -z "$DEB_PATH" ]; then
-    log.error "错误：至少需要一个--basename参数，且DEB文件路径为必填"
-    usage
-    exit 1
+# 基本参数验证：
+# 如果不是手动模式，则至少需要一个 --base 和一个 deb 文件
+if [ "$MANUAL_MODE" = false ]; then
+    if [ ${#BASENAMES[@]} -eq 0 ] || [ -z "$DEB_PATH" ]; then
+        log.error "错误：非手动模式下至少需要一个 --base 参数 且 必须提供 DEB 文件路径"
+        usage
+        exit 1
+    fi
+else
+    # 手动模式下允许没有 DEB_FILE，但仍然要有至少一个 base
+    if [ ${#BASENAMES[@]} -eq 0 ]; then
+        log.error "错误：手动模式下仍需提供至少一个 --base 参数"
+        usage
+        exit 1
+    fi
 fi
 
-if [ ! -f "$DEB_PATH" ]; then
+# 如果传入了 DEB_PATH，检查文件是否存在
+if [ -n "$DEB_PATH" ] && [ ! -f "$DEB_PATH" ]; then
     log.error "错误：DEB文件不存在: $DEB_PATH"
     exit 1
 fi
 
-log.info "开始转换DEB包: $DEB_PATH"
-log.info "基础环境数量: ${#BASENAMES[@]}"
-for i in "${!BASENAMES[@]}"; do
-    log.info "  基础环境 $((i+1)): ${BASENAMES[$i]}"
+log.info "开始转换（手动模式: $MANUAL_MODE）"
+log.info "基础环境数量: ${#BASENAMES_ORIG[@]}"
+for i in "${!BASENAMES_ORIG[@]}"; do
+    log.info "  原始基础环境 $((i+1)): ${BASENAMES_ORIG[$i]}"
 done
 
-# ------------------------
-# 创建工作目录
-# ------------------------
+if [ -n "$DEB_PATH" ]; then
+    log.info "目标 DEB: $DEB_PATH"
+else
+    log.info "未提供 DEB 文件，处于纯手动模式（手动修改/安装/打包）"
+fi
+
+# 1. 创建临时工作目录
 CRAFT_DIR="$HOME/apm-craft-$$"
 log.info "创建临时工作目录: $CRAFT_DIR"
-mkdir -p "$CRAFT_DIR"/{core,work,mergedir,modified_deb}
-
+mkdir -p "$CRAFT_DIR"/{core,work,mergedir,modified_deb,extract,new-pkg}
 export CRAFT_DIR
 
+# 检查是否已挂载，避免重复挂载
 cleanup_mount() {
     if mountpoint -q "$CRAFT_DIR/mergedir"; then
         log.info "解除挂载: $CRAFT_DIR/mergedir"
@@ -122,6 +134,7 @@ cleanup_mount() {
     fi
 }
 
+# 清理函数
 cleanup() {
     log.info "开始清理..."
     cleanup_mount
@@ -131,21 +144,29 @@ cleanup() {
     fi
 }
 
+# 设置退出时清理
 trap cleanup EXIT
 
-# ------------------------
-# 递归解析依赖 base
-# ------------------------
+# 递归获取info文件中的依赖 (会把新依赖追加到 BASENAMES 数组中)
 get_recursive_basenames() {
     local basename="$1"
+    # 注意：根据之前脚本结构，info 存放在 /var/lib/apm/apm/files/ace-env/var/lib/apm/<basename>/info
     local base_dir="/var/lib/apm/apm/files/ace-env/var/lib/apm/$basename"
     local info_file="$base_dir/info"
-    
+
     if [ -f "$info_file" ]; then
         log.info "读取info文件: $info_file"
         while IFS= read -r base; do
             [[ -z "$base" ]] && continue
-            if [[ ! " ${BASENAMES[*]} " =~ " $base " ]]; then
+            # 如果依赖的 base 没有被记录过，则递归添加
+            local found=false
+            for existing in "${BASENAMES[@]}"; do
+                if [ "$existing" = "$base" ]; then
+                    found=true
+                    break
+                fi
+            done
+            if [ "$found" = false ]; then
                 BASENAMES+=("$base")
                 get_recursive_basenames "$base"
             fi
@@ -155,198 +176,241 @@ get_recursive_basenames() {
     fi
 }
 
+# 递归获取所有基础环境（从用户输入的 base 开始）
 for BASE in "${BASENAMES[@]}"; do
     get_recursive_basenames "$BASE"
 done
 
-# ------------------------
-# 检查原DEB包信息
-# ------------------------
-log.info "检查原DEB包信息..."
-ORIG_PKGNAME=$(dpkg -f "$DEB_PATH" Package)
-ORIG_VERSION=$(dpkg -f "$DEB_PATH" Version)
-ORIG_ARCH=$(dpkg -f "$DEB_PATH" Architecture)
+# 如果用户传了 DEB，则读取原包信息（否则跳过）
+if [ -n "$DEB_PATH" ]; then
+    log.info "检查原DEB包信息..."
+    ORIG_PKGNAME=$(dpkg -f "$DEB_PATH" Package 2>/dev/null || echo "")
+    ORIG_VERSION=$(dpkg -f "$DEB_PATH" Version 2>/dev/null || echo "")
+    ORIG_ARCH=$(dpkg -f "$DEB_PATH" Architecture 2>/dev/null || echo "")
 
-log.info "原包名: $ORIG_PKGNAME"
-log.info "原版本: $ORIG_VERSION"
-log.info "原架构: $ORIG_ARCH"
+    log.info "原包名: ${ORIG_PKGNAME:-未知}"
+    log.info "原版本: ${ORIG_VERSION:-未知}"
+    log.info "原架构: ${ORIG_ARCH:-unknown}"
+else
+    ORIG_PKGNAME=""
+    ORIG_VERSION=""
+    ORIG_ARCH="$(dpkg --print-architecture 2>/dev/null || echo "unknown")"
+fi
 
-NEW_PKGNAME="${PKGNAME:-$ORIG_PKGNAME}"
+# 设置新包名和版本（若手动模式且未指定，则稍后询问）
+NEW_PKGNAME="${PKGNAME:-${ORIG_PKGNAME}}"
 NEW_VERSION="${VERSION:-${ORIG_VERSION}-apm}"
 
-log.info "新包名: $NEW_PKGNAME"
-log.info "新版本: $NEW_VERSION"
+log.info "将使用的新包名: ${NEW_PKGNAME:-<未指定>}"
+log.info "将使用的新版本: ${NEW_VERSION:-<未指定>}"
+log.info "使用的架构: $ORIG_ARCH"
 
-# ------------------------
-# 构建lowerdir
-# ------------------------
-log.info "构建overlay lowerdir路径..."
+# 2. 构建 lowerdir 路径（多个 base 按顺序叠放）
+log.info "构建 overlay lowerdir 路径..."
 LOWERDIRS=()
+
 for BASENAME in "${BASENAMES[@]}"; do
     ACE_ENV_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/ace-env"
     CORE_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/core"
-    
+
     if [ -d "$ACE_ENV_PATH" ]; then
-        log.info "使用ace-env路径: $ACE_ENV_PATH"
+        log.info "使用 ace-env 路径: $ACE_ENV_PATH"
         LOWERDIRS+=("$ACE_ENV_PATH")
     elif [ -d "$CORE_PATH" ]; then
-        log.info "使用core路径: $CORE_PATH"
+        log.info "使用 core 路径: $CORE_PATH"
         LOWERDIRS+=("$CORE_PATH")
     else
         log.error "错误：基础环境路径不存在: $BASENAME"
+        log.error "  检查的路径: $ACE_ENV_PATH"
+        log.error "  检查的路径: $CORE_PATH"
         exit 1
     fi
 done
 
+# 将 lowerdirs 数组用冒号连接
 LOWERDIR=$(IFS=:; echo "${LOWERDIRS[*]}")
-log.debug "最终lowerdir: $LOWERDIR"
+log.debug "最终 lowerdir: $LOWERDIR"
 
-# ------------------------
-# 挂载 overlay
-# ------------------------
+# 3. 进行融合挂载
 log.info "正在进行融合挂载..."
 sudo mount -t overlay overlay \
     -o "lowerdir=$LOWERDIR,upperdir=$CRAFT_DIR/core/,workdir=$CRAFT_DIR/work/" \
     "$CRAFT_DIR/mergedir"
-log.info "挂载完成"
 
-# ------------------------
-# 手动模式支持
-# ------------------------
+if ! mountpoint -q "$CRAFT_DIR/mergedir"; then
+    log.error "错误：融合挂载失败"
+    exit 1
+fi
+
+log.info "挂载完成: $CRAFT_DIR/mergedir"
+
+# 导出 chrootEnvPath 以便 ace-run-pkg 使用（并在需要时传递给 sudo -E）
+export chrootEnvPath="$CRAFT_DIR/mergedir"
+log.debug "已导出 chrootEnvPath=$chrootEnvPath"
+
+# 如果在手动模式下，立即打开交互 shell 并在退出后继续脚本
 if [ "$MANUAL_MODE" = true ]; then
-    log.info "已启用手动模式，进入交互式环境..."
-    log.info "提示：您现在处于融合挂载环境中，可使用 'ls', 'dpkg -i', 'aptss' 等命令检查和修改。"
-    log.info "输入 'exit' 退出后将继续执行打包流程。"
-    sudo -E /var/lib/apm/apm/files/ace-run-pkg bash || {
-        log.error "错误：手动模式 shell 启动失败"
+    log.info "进入手动模式：将在融合挂载环境中打开交互 shell（使用 ace-run-pkg）。"
+    log.info "在 shell 中，您可以手动修改、测试安装或进行其他操作。退出 shell 后脚本将继续。"
+    # 启动交互 shell，保留环境变量（使用 sudo -E）
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg bash --login || {
+        log.warn "ace-run-pkg shell 退出或出现错误，继续脚本..."
+    }
+    log.info "用户已退出手动 shell，脚本将继续。"
+    # 如果没有 DEB，询问是否要进行后续打包（允许返回 shell）
+    if [ -z "$DEB_PATH" ]; then
+        while true; do
+            echo ""
+            read -r -p "未提供 DEB 文件。是否现在进行新 APM 包的自动打包？ (y = 打包, r = 返回 shell, n = 跳过打包) [y/r/n]: " yn
+            case "$yn" in
+                y|Y)
+                    # 如果缺少包名或版本，交互询问
+                    if [ -z "$NEW_PKGNAME" ]; then
+                        read -r -p "请输入要创建的包名 (Package): " NEW_PKGNAME
+                    fi
+                    if [ -z "$NEW_VERSION" ] || [[ "$NEW_VERSION" == "-apm" ]]; then
+                        read -r -p "请输入要创建的版本 (Version): " NEW_VERSION
+                    fi
+                    break
+                    ;;
+                r|R)
+                    log.info "返回交互 shell（使用 ace-run-pkg）。退出 shell 后再次询问。"
+                    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg bash --login || true
+                    ;;
+                n|N)
+                    log.info "跳过自动打包。脚本结束。"
+                    exit 0
+                    ;;
+                *)
+                    echo "请输入 y, r, 或 n。"
+                    ;;
+            esac
+        done
+    fi
+fi
+
+# 到这里：非手动模式或手动模式退出后继续（如果是非手动并且有 DEB，继续原本流程）
+# 4. 如果有 DEB 文件，进行自动化的检查、解包与修改
+if [ -n "$DEB_PATH" ]; then
+
+    # 在融合环境中更新包列表并做 dry-run 检查（如果 ace-run-pkg aptss 可用）
+    log.info "在融合环境中测试安装 DEB 包（dry-run）..."
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg aptss update || log.warn "aptss update 返回非零状态，继续但请注意"
+    if ! sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg aptss install "$DEB_PATH" --dry-run ; then
+        log.error "错误：安装前检查失败，DEB包可能无法在基础环境中安装"
+        log.error "请检查依赖关系或基础环境是否兼容"
+        exit 1
+    fi
+    log.info "安装前检查通过，准备进行提取与修改..."
+
+    # 提取 DEB 包内容并准备修改
+    log.info "提取并修改原DEB包..."
+    EXTRACT_DIR="$CRAFT_DIR/extract"
+    MODIFIED_DEB_DIR="$CRAFT_DIR/modified_deb"
+    mkdir -p "$EXTRACT_DIR"
+    mkdir -p "$MODIFIED_DEB_DIR/DEBIAN"
+
+    dpkg -x "$DEB_PATH" "$EXTRACT_DIR"
+    dpkg -e "$DEB_PATH" "$MODIFIED_DEB_DIR/DEBIAN"
+
+    # 处理 .desktop 文件：注意使用 while read 来避免 subshell 问题
+    DESKTOP_MODIFIED=false
+    while IFS= read -r desktop_file; do
+        [ -z "$desktop_file" ] && continue
+        log.info "处理桌面文件: $desktop_file"
+        # 尝试用 busybox dos2unix（若不存在则跳过转换）
+        if command -v busybox >/dev/null 2>&1; then
+            busybox dos2unix "$desktop_file" 2>/dev/null || true
+        else
+            dos2unix "$desktop_file" 2>/dev/null || true || true
+        fi
+        DESKTOP_MODIFIED=true
+
+        # 处理 Exec 行：在原有命令前追加 apm run $NEW_PKGNAME
+        if grep -q '^Exec=' "$desktop_file"; then
+            sed -i "s|^Exec=\(.*\)$|Exec=apm run ${NEW_PKGNAME:-$ORIG_PKGNAME} \1|" "$desktop_file"
+        fi
+
+        # 删除 TryExec 行
+        if grep -q '^TryExec=' "$desktop_file"; then
+            sed -i '/^TryExec=/d' "$desktop_file"
+            log.info "已删除 TryExec 行"
+        fi
+
+        # 处理 Icon 路径（若以 / 开头）
+        if grep -q '^Icon=/' "$desktop_file"; then
+            sed -i "s|^Icon=/|Icon=/var/lib/apm/apm/files/ace-env/var/lib/apm/${NEW_PKGNAME:-$ORIG_PKGNAME}/files/core/|" "$desktop_file"
+        fi
+
+        # 添加 X-APM-APPID
+        if ! grep -q "X-APM-APPID" "$desktop_file"; then
+            echo "X-APM-APPID=${NEW_PKGNAME:-$ORIG_PKGNAME}" >> "$desktop_file"
+        fi
+
+        # 检查修改结果并打印调试
+        if grep -q "apm run ${NEW_PKGNAME:-$ORIG_PKGNAME}" "$desktop_file"; then
+            log.info "桌面文件修改成功: $desktop_file"
+        else
+            log.warn "桌面文件可能未正确修改: $desktop_file"
+        fi
+    done < <(find "$EXTRACT_DIR" -name "*.desktop" -print)
+
+    if [ "$DESKTOP_MODIFIED" = false ]; then
+        log.info "未找到需要修改的 .desktop 文件"
+    fi
+
+    # 复制修改后的文件结构到打包目录并重新打包 modified deb（供本地测试/安装使用）
+    MODIFIED_DEB_PATH="$CRAFT_DIR/modified_${ORIG_PKGNAME:-package}.deb"
+    log.info "重新打包修改后的 DEB: $MODIFIED_DEB_PATH"
+    mkdir -p "$MODIFIED_DEB_DIR/data"
+    cp -r "$EXTRACT_DIR"/* "$MODIFIED_DEB_DIR/" 2>/dev/null || true
+
+    (cd "$MODIFIED_DEB_DIR" && fakeroot dpkg-deb --build -Z none . "$MODIFIED_DEB_PATH") || {
+        log.error "错误：重新打包 DEB 失败"
         exit 1
     }
-    log.info "手动模式已退出，继续执行自动打包流程..."
-fi
 
-# 5. 在融合环境中测试安装DEB包
-log.info "在融合环境中测试安装DEB包..."
-
-# 更新包列表
-export chrootEnvPath="$CRAFT_DIR/mergedir"
-sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss update
-
-# 首先进行dry-run检查
-log.info "进行安装前检查..."
-if ! sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss install "$DEB_PATH" --dry-run; then
-    log.error "错误：安装前检查失败，DEB包可能无法在基础环境中安装"
-    log.error "请检查依赖关系或基础环境是否兼容"
-    exit 1
-fi
-
-log.info "安装前检查通过，准备实际安装..."
-
-# 6. 提取并修改DEB包
-log.info "提取并修改原DEB包..."
-EXTRACT_DIR="$CRAFT_DIR/extract"
-MODIFIED_DEB_DIR="$CRAFT_DIR/modified_deb"
-mkdir -p "$EXTRACT_DIR"
-mkdir -p "$MODIFIED_DEB_DIR/DEBIAN"
-
-# 解压DEB包
-dpkg -x "$DEB_PATH" "$EXTRACT_DIR"
-dpkg -e "$DEB_PATH" "$MODIFIED_DEB_DIR/DEBIAN"
-
-# 处理.desktop文件
-DESKTOP_MODIFIED=false
-find "$EXTRACT_DIR" -name "*.desktop" | while read -r desktop_file; do
-    log.info "处理桌面文件: $desktop_file"
-    busybox dos2unix $desktop_file
-    DESKTOP_MODIFIED=true
-
-    # 在Exec和TryExec行前追加 "apm run $NEW_PKGNAME"
-    # 处理Exec行
-    if grep -q '^Exec=' "$desktop_file"; then
-        sed -i 's/^Exec=\(.*\)$/Exec=apm run '"$NEW_PKGNAME"' \1/' "$desktop_file"
+    if [ ! -f "$MODIFIED_DEB_PATH" ]; then
+        log.error "错误：重新打包后的 DEB 未生成: $MODIFIED_DEB_PATH"
+        exit 1
     fi
-    
-# 处理TryExec行 - 直接删除
-if grep -q '^TryExec=' "$desktop_file"; then
-    sed -i '/^TryExec=/d' "$desktop_file"
-    log.info "已删除TryExec行"
-fi
+    log.info "修改后的 DEB 包已生成: $MODIFIED_DEB_PATH"
 
-    # 处理Icon路径
-    icon_line=$(grep "^Icon=" "$desktop_file")
-    if [[ "$icon_line" == "Icon=/"* ]]; then
-        sed -i 's|^Icon=/|Icon=/var/lib/apm/apm/files/ace-env/var/lib/apm/'"$NEW_PKGNAME"'/files/core/|' "$desktop_file"
+    # 可选：在融合环境中实际安装修改后的包（默认使用 ssaudit 命令）
+    if ! sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg ssaudit "$MODIFIED_DEB_PATH" --native --no-create-desktop-entry ; then
+        log.error "错误：修改后的 DEB 包安装失败（ssaudit）"
+        exit 1
     fi
+    log.info "修改后的 DEB 包安装完成（ssaudit）"
 
-    # 添加X-APM-APPID
-    if ! grep -q "X-APM-APPID" "$desktop_file"; then
-        echo "X-APM-APPID=$NEW_PKGNAME" >> "$desktop_file"
-    fi
-
-    # 检查修改结果
-    if grep -q "apm run $NEW_PKGNAME" "$desktop_file"; then
-        log.info "桌面文件修改成功"
-        log.debug "修改后的Exec行: $(grep '^Exec=' "$desktop_file" || echo "未找到")"
-        log.debug "修改后的TryExec行: $(grep '^TryExec=' "$desktop_file" || echo "未找到")"
-    else
-        log.warn "桌面文件可能未正确修改: $desktop_file"
-    fi
-done
-
-if [ "$DESKTOP_MODIFIED" = false ]; then
-    log.info "未找到需要修改的.desktop文件"
+    # 清理 apt 缓存
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg aptss clean || true
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/apt/lists || true
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/aptss/lists || true
 fi
 
-# 重新打包修改后的DEB
-MODIFIED_DEB_PATH="$CRAFT_DIR/modified_${ORIG_PKGNAME}.deb"
-log.info "重新打包修改后的DEB: $MODIFIED_DEB_PATH"
-
-# 复制修改后的文件结构到打包目录
-mkdir -p "$MODIFIED_DEB_DIR/data"
-cp -r "$EXTRACT_DIR"/* "$MODIFIED_DEB_DIR/" 2>/dev/null || true
-
-# 使用fakeroot重新打包
-cd "$MODIFIED_DEB_DIR" && fakeroot  dpkg-deb --build -Z none . "$MODIFIED_DEB_PATH"
-cd - > /dev/null
-
-if [ ! -f "$MODIFIED_DEB_PATH" ]; then
-    log.error "错误：重新打包DEB失败"
-    exit 1
-fi
-
-log.info "DEB包修改完成，新包路径: $MODIFIED_DEB_PATH"
-
-# 实际安装修改后的DEB包
-if ! sudo -E /var/lib/apm/apm/files/ace-run-pkg ssaudit "$MODIFIED_DEB_PATH" --native --no-create-desktop-entry; then
-    log.error "错误：修改后的DEB包安装失败"
-    exit 1
-fi
-
-log.info "修改后的DEB包安装完成"
-
-# 清理一些垃圾
-sudo -E /var/lib/apm/apm/files/ace-run-pkg aptss clean
-sudo -E /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/apt/lists
-sudo -E /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/aptss/lists
-
-# 7. 创建新的APM包结构
+# 5. 创建新的 APM 包结构
 log.info "创建新的APM包结构..."
 PKG_BUILD_DIR="$CRAFT_DIR/new-pkg"
 mkdir -p "$PKG_BUILD_DIR/DEBIAN"
-mkdir -p "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME"/{entries,files}
+mkdir -p "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME"/{entries,files} 2>/dev/null || true
 
-# 创建info文件 - 写入所有base，每行一个
-log.info "创建info文件，包含输入的基础环境:"
+# info 和 info_debug：写入原始输入的 base 列表 和 递归展开后的 base 列表
+log.info "创建 info 文件（包含原始输入的基础环境）..."
+: > "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/info" 2>/dev/null || true
 for BASENAME in "${BASENAMES_ORIG[@]}"; do
-    echo "$BASENAME" >> "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/info"
-    log.info "  写入: $BASENAME"
-done
-log.info "创建info_debug文件，包含所有基础环境:"
-for BASENAME in "${BASENAMES[@]}"; do
-    echo "$BASENAME" >> "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/info_debug"
+    echo "$BASENAME" >> "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/info"
     log.info "  写入: $BASENAME"
 done
 
-# 创建postrm脚本
+log.info "创建 info_debug 文件（包含所有递归依赖的基础环境）..."
+: > "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/info_debug" 2>/dev/null || true
+for BASENAME in "${BASENAMES[@]}"; do
+    echo "$BASENAME" >> "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/info_debug"
+    log.info "  写入: $BASENAME"
+done
+
+# 创建 postrm 脚本
 cat > "$PKG_BUILD_DIR/DEBIAN/postrm" << 'EOF'
 #!/bin/bash
 PACKAGE_NAME="$DPKG_MAINTSCRIPT_PACKAGE"
@@ -354,14 +418,11 @@ PACKAGE_NAME="$DPKG_MAINTSCRIPT_PACKAGE"
 if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
     echo "清理卸载残留"
     rm -rf "/var/lib/apm/$PACKAGE_NAME"
-for username in $(ls /home)
-    do
-        echo /home/$username
-        if [ -d "/home/$username/.apm/$PACKAGE_NAME" ]
-        then
+    for username in $(ls /home); do
+        if [ -d "/home/$username/.apm/$PACKAGE_NAME" ]; then
             rm -fr "/home/$username/.apm/$PACKAGE_NAME"
         fi
-done
+    done
 else
     echo "非卸载，跳过清理"
 fi
@@ -369,34 +430,35 @@ EOF
 
 chmod +x "$PKG_BUILD_DIR/DEBIAN/postrm"
 
-# 8. 复制文件到新的APM包
+# 6. 复制需要的文件到新的 APM 包
 log.info "复制文件到新的APM包..."
 
-# 复制/usr/share/内容到entries
-if [ -d "$EXTRACT_DIR/usr/share" ]; then
-    log.info "复制/usr/share/内容..."
-    cp -r "$EXTRACT_DIR/usr/share/"* "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/entries/"
+# 复制 /usr/share 内容到 entries
+if [ -d "$CRAFT_DIR/extract/usr/share" ]; then
+    log.info "复制 /usr/share 内容..."
+    mkdir -p "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries"
+    cp -r "$CRAFT_DIR/extract/usr/share/"* "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries/" 2>/dev/null || true
 fi
 
-# 复制/opt/apps/内容（如果存在）
-if [ -d "$EXTRACT_DIR/opt/apps/$ORIG_PKGNAME/entries" ]; then
-    log.info  "复制/opt/apps/$ORIG_PKGNAME/entries内容..."
-    cp -r "$EXTRACT_DIR/opt/apps/$ORIG_PKGNAME/entries/"* "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/entries/"
+# 复制 /opt/apps/<orig_pkg>/entries（如果存在）
+if [ -n "$ORIG_PKGNAME" ] && [ -d "$CRAFT_DIR/extract/opt/apps/$ORIG_PKGNAME/entries" ]; then
+    log.info "复制 /opt/apps/$ORIG_PKGNAME/entries 内容..."
+    cp -r "$CRAFT_DIR/extract/opt/apps/$ORIG_PKGNAME/entries/"* "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries/" 2>/dev/null || true
 fi
 
-# 复制融合环境文件
-log.info  "复制融合环境文件..."
-sudo cp -r "$CRAFT_DIR"/{core,work} "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/files/"
+# 复制融合环境（core, work）到新的包内 files（以便运行时使用）
+log.info "复制融合环境文件..."
+sudo cp -r "$CRAFT_DIR"/core "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/files/" 2>/dev/null || true
+sudo cp -r "$CRAFT_DIR"/work "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/files/" 2>/dev/null || true
 
 # 设置文件权限
-sudo chmod -R 755 "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/files/"
+sudo chmod -R 755 "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/files/" 2>/dev/null || true
 
-# 9. 解除挂载
-log.info  "解除挂载..."
+# 7. 解除挂载（如果尚未解除）
+log.info "解除挂载..."
 cleanup_mount
 
-# 10. 打包新的APM包
-log.info  "打包新的APM包..."
+# 8. 计算目录大小函数
 calculate_directory_size() {
     local dir="$1"
     if [ -d "$dir" ]; then
@@ -406,33 +468,47 @@ calculate_directory_size() {
     fi
 }
 
-# 构建依赖字符串 - 包含所有base
+# 构建依赖字符串 - 包含所有用户原始输入的 base（用于 control）
 DEPENDS_STR=$(IFS=,; echo "${BASENAMES_ORIG[*]}")
 
-# 创建control文件
+# 若打包前没有 NEW_PKGNAME/NEW_VERSION，交互询问（一般出现在手动无DEB场景）
+if [ -z "$NEW_PKGNAME" ]; then
+    read -r -p "请输入要创建的包名 (Package): " NEW_PKGNAME
+fi
+if [ -z "$NEW_VERSION" ] || [[ "$NEW_VERSION" == "-apm" ]]; then
+    read -r -p "请输入要创建的版本 (Version): " NEW_VERSION
+fi
+
+# 创建 control 文件
 cat > "${PKG_BUILD_DIR}/DEBIAN/control" << EOF
 Package: $NEW_PKGNAME
 Version: $NEW_VERSION
 Architecture: $ORIG_ARCH
 Maintainer: APM Converter <apm-convert@spark-app.store>
 Depends: $DEPENDS_STR
-Installed-Size: $(calculate_directory_size $PKG_BUILD_DIR)
-Description: APM converted package from $ORIG_PKGNAME
+Installed-Size: $(calculate_directory_size "$PKG_BUILD_DIR")
+Description: APM converted package from ${ORIG_PKGNAME:-original}
   This package was automatically converted from the original deb package.
   Based on: ${BASENAMES_ORIG[*]}
 EOF
 
-# 生成输出文件名
+# 9. 打包并生成输出文件名
 OUTPUT_DEB="${NEW_PKGNAME}_${NEW_VERSION}_${ORIG_ARCH}.deb"
+log.info "开始使用 fakeroot 打包: $OUTPUT_DEB"
+fakeroot dpkg-deb -Z xz --build "$PKG_BUILD_DIR" "$OUTPUT_DEB" || {
+    log.error "错误：打包 APM 包失败"
+    exit 1
+}
 
-# 打包
-fakeroot  dpkg-deb -Z xz --build "$PKG_BUILD_DIR" "$OUTPUT_DEB"
-
-log.info  "转换完成！"
+log.info "转换完成！"
 log.info "生成的APM包: $OUTPUT_DEB"
 log.info "包名: $NEW_PKGNAME"
 log.info "版本: $NEW_VERSION"
 log.info "架构: $ORIG_ARCH"
 log.info "依赖: $DEPENDS_STR"
-log.info "基础环境: ${BASENAMES[*]}"
-log.info "注意：桌面文件已修改，添加了APM运行前缀和APPID"
+log.info "基础环境（原始输入）: ${BASENAMES_ORIG[*]}"
+log.info "基础环境（递归展开）: ${BASENAMES[*]}"
+log.info "注意：桌面文件如存在已被修改，添加了 apm run 前缀和 X-APM-APPID"
+
+# 退出（trap 会触发 cleanup）
+exit 0
