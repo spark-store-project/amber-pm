@@ -328,27 +328,27 @@ interactive_copy_entries() {
     local entries_dir="$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries"
     
     log.info "开始交互式选择文件复制到 entries 目录..."
-    mkdir -p "$entries_dir"
+    mkdir -p "$entries_dir/applications" "$entries_dir/icons"
     
     # 查找桌面文件
     local desktop_files=()
     while IFS= read -r -d '' file; do
         [[ -f "$file" ]] && desktop_files+=("$file")
-    done < <(find "$core_dir/usr/share/applications" -name "*.desktop" -print0 2>/dev/null || true)
+    done < <(find "$core_dir/usr/share" -name "*.desktop" -print0 2>/dev/null || true)
     
     # 查找图标文件
     local icon_files=()
     while IFS= read -r -d '' file; do
         [[ -f "$file" ]] && icon_files+=("$file")
-    done < <(find "$core_dir/usr/share/icons" \( -name "*.png" -o -name "*.svg" -o -name "*.xpm" \) -print0 2>/dev/null || true)
+    done < <(find "$core_dir/usr/share" \( -name "*.png" -o -name "*.svg" -o -name "*.xpm" \) -print0 2>/dev/null || true)
     
     # 处理桌面文件
     if [ ${#desktop_files[@]} -gt 0 ]; then
         log.info "找到 ${#desktop_files[@]} 个桌面文件:"
         for i in "${!desktop_files[@]}"; do
             local file="${desktop_files[$i]}"
-            local rel_path="${file#$core_dir}"
-            echo "  $((i+1)). $rel_path"
+            local filename=$(basename "$file")
+            echo "  $((i+1)). $filename"
             
             # 检查是否是符号链接
             if [ -L "$file" ]; then
@@ -357,7 +357,7 @@ interactive_copy_entries() {
                 # 解析符号链接获取实际文件
                 local resolved_file=$(resolve_symlink "$file" "$core_dir")
                 if [ "$resolved_file" != "$file" ] && [ -f "$resolved_file" ]; then
-                    echo "      → 解析为: ${resolved_file#$core_dir}"
+                    echo "      → 解析为: $(basename "$resolved_file")"
                     desktop_files[$i]="$resolved_file"
                 fi
             fi
@@ -367,11 +367,10 @@ interactive_copy_entries() {
         read -r -p "请选择要复制的桌面文件编号（多个用逗号分隔，all=全部，none=跳过）: " desktop_choice
         
         if [[ "$desktop_choice" =~ ^[Aa][Ll][Ll]$ ]]; then
-            # 复制所有桌面文件
+            # 复制所有桌面文件到 entries/applications
             for file in "${desktop_files[@]}"; do
-                local rel_path="${file#$core_dir}"
-                local dest_path="$entries_dir/applications"
-                mkdir -p "$(dirname "$dest_path")"
+                local filename=$(basename "$file")
+                local dest_path="$entries_dir/applications/$filename"
                 cp -v "$file" "$dest_path"
                 
                 # 处理桌面文件内容
@@ -385,9 +384,8 @@ interactive_copy_entries() {
                 if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#desktop_files[@]} ]; then
                     local idx=$((choice-1))
                     local file="${desktop_files[$idx]}"
-                    local rel_path="${file#$core_dir}"
-                    local dest_path="$entries_dir$rel_path"
-                    mkdir -p "$(dirname "$dest_path")"
+                    local filename=$(basename "$file")
+                    local dest_path="$entries_dir/applications/$filename"
                     cp -v "$file" "$dest_path"
                     
                     # 处理桌面文件内容
@@ -408,8 +406,8 @@ interactive_copy_entries() {
         log.info "找到 ${#icon_files[@]} 个图标文件:"
         for i in "${!icon_files[@]}"; do
             local file="${icon_files[$i]}"
-            local rel_path="${file#$core_dir}"
-            echo "  $((i+1)). $rel_path"
+            local filename=$(basename "$file")
+            echo "  $((i+1)). $filename"
             
             # 检查是否是符号链接
             if [ -L "$file" ]; then
@@ -418,7 +416,7 @@ interactive_copy_entries() {
                 # 解析符号链接获取实际文件
                 local resolved_file=$(resolve_symlink "$file" "$core_dir")
                 if [ "$resolved_file" != "$file" ] && [ -f "$resolved_file" ]; then
-                    echo "      → 解析为: ${resolved_file#$core_dir}"
+                    echo "      → 解析为: $(basename "$resolved_file")"
                     icon_files[$i]="$resolved_file"
                 fi
             fi
@@ -428,11 +426,10 @@ interactive_copy_entries() {
         read -r -p "请选择要复制的图标文件编号（多个用逗号分隔，all=全部，none=跳过）: " icon_choice
         
         if [[ "$icon_choice" =~ ^[Aa][Ll][Ll]$ ]]; then
-            # 复制所有图标文件
+            # 复制所有图标文件到 entries/icons
             for file in "${icon_files[@]}"; do
-                local rel_path="${file#$core_dir}"
-                local dest_path="$entries_dir/icons/"
-                mkdir -p "$(dirname "$dest_path")"
+                local filename=$(basename "$file")
+                local dest_path="$entries_dir/icons/$filename"
                 cp -v "$file" "$dest_path"
             done
         elif [[ ! "$icon_choice" =~ ^[Nn][Oo][Nn][Ee]$ ]] && [ -n "$icon_choice" ]; then
@@ -443,9 +440,8 @@ interactive_copy_entries() {
                 if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#icon_files[@]} ]; then
                     local idx=$((choice-1))
                     local file="${icon_files[$idx]}"
-                    local rel_path="${file#$core_dir}"
-                    local dest_path="$entries_dir$rel_path"
-                    mkdir -p "$(dirname "$dest_path")"
+                    local filename=$(basename "$file")
+                    local dest_path="$entries_dir/icons/$filename"
                     cp -v "$file" "$dest_path"
                 else
                     log.warn "无效的选择: $choice"
@@ -458,6 +454,7 @@ interactive_copy_entries() {
         log.info "未找到图标文件"
     fi
 }
+
 
 # 函数：处理桌面文件内容
 process_desktop_file() {
