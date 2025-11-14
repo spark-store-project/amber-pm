@@ -370,7 +370,7 @@ interactive_copy_entries() {
             # 复制所有桌面文件
             for file in "${desktop_files[@]}"; do
                 local rel_path="${file#$core_dir}"
-                local dest_path="$entries_dir$rel_path"
+                local dest_path="$entries_dir/applications"
                 mkdir -p "$(dirname "$dest_path")"
                 cp -v "$file" "$dest_path"
                 
@@ -431,7 +431,7 @@ interactive_copy_entries() {
             # 复制所有图标文件
             for file in "${icon_files[@]}"; do
                 local rel_path="${file#$core_dir}"
-                local dest_path="$entries_dir$rel_path"
+                local dest_path="$entries_dir/icons/"
                 mkdir -p "$(dirname "$dest_path")"
                 cp -v "$file" "$dest_path"
             done
