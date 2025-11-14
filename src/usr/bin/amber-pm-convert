@@ -257,33 +257,191 @@ if [ "$MANUAL_MODE" = true ]; then
         log.warn "ace-run-pkg shell 退出或出现错误，继续脚本..."
     }
     log.info "用户已退出手动 shell，脚本将继续。"
-    # 如果没有 DEB，询问是否要进行后续打包（允许返回 shell）
+    
+    # 新增：在 manual 模式且无 DEB 文件的情况下，查找并复制桌面文件和图标
     if [ -z "$DEB_PATH" ]; then
+        # 第一阶段：选择并复制桌面文件
         while true; do
             echo ""
-            read -r -p "未提供 DEB 文件。是否现在进行新 APM 包的自动打包？ (y = 打包, r = 返回 shell, n = 跳过打包) [y/r/n]: " yn
+            log.info "=== 桌面文件处理 ==="
+            # 查找所有 .desktop 文件
+            DESKTOP_FILES=()
+            while IFS= read -r -d '' file; do
+                DESKTOP_FILES+=("$file")
+            done < <(find "$CRAFT_DIR/core/usr/share" -name "*.desktop" -type f -print0 2>/dev/null || true)
+            
+            if [ ${#DESKTOP_FILES[@]} -eq 0 ]; then
+                log.warn "在 $CRAFT_DIR/core/usr/share 中未找到 .desktop 文件"
+                break
+            fi
+            
+            log.info "找到以下桌面文件:"
+            for i in "${!DESKTOP_FILES[@]}"; do
+                echo "  [$((i+1))] ${DESKTOP_FILES[$i]}"
+            done
+            
+            read -r -p "请选择要复制的桌面文件编号（输入多个编号用空格分隔，输入 0 跳过）: " selection
+            
+            if [ "$selection" = "0" ]; then
+                log.info "跳过桌面文件复制"
+                break
+            fi
+            
+            # 处理选择
+            IFS=' ' read -ra SELECTED_INDEXES <<< "$selection"
+            if [ ${#SELECTED_INDEXES[@]} -gt 0 ]; then
+                # 创建 entries 目录
+                mkdir -p "$CRAFT_DIR/new-pkg/var/lib/apm/${NEW_PKGNAME}/entries/applications" 2>/dev/null || true
+                
+                for idx in "${SELECTED_INDEXES[@]}"; do
+                if [[ "$idx" =~ ^[0-9]+$ ]] && [ "$idx" -ge 1 ] && [ "$idx" -le ${#DESKTOP_FILES[@]} ]; then
+                    desktop_file="${DESKTOP_FILES[$((idx-1))]}"
+                    # 如果是符号链接，找到源文件
+                    if [ -L "$desktop_file" ]; then
+                        target_file=$(readlink -f "$desktop_file" 2>/dev/null || echo "$desktop_file")
+                        log.info "处理符号链接: $desktop_file -> $target_file"
+                        desktop_file="$target_file"
+                    fi
+                    
+                    if [ -f "$desktop_file" ]; then
+                        filename=$(basename "$desktop_file")
+                        dest_path="$CRAFT_DIR/new-pkg/var/lib/apm/${NEW_PKGNAME}/entries/applications/$filename"
+                        log.info "复制桌面文件: $desktop_file -> $dest_path"
+                        cp "$desktop_file" "$dest_path"
+                        
+                        # 处理桌面文件内容
+                        if command -v busybox >/dev/null 2>&1; then
+                            busybox dos2unix "$dest_path" 2>/dev/null || true
+                        else
+                            dos2unix "$dest_path" 2>/dev/null || true
+                        fi
+                        
+                        # 修改 Exec 行
+                        if grep -q '^Exec=' "$dest_path"; then
+                            sed -i "s|^Exec=\(.*\)$|Exec=apm run ${NEW_PKGNAME:-$ORIG_PKGNAME} \1|" "$dest_path"
+                        fi
+                        
+                        # 删除 TryExec 行
+                        if grep -q '^TryExec=' "$dest_path"; then
+                            sed -i '/^TryExec=/d' "$dest_path"
+                            log.info "已删除 TryExec 行"
+                        fi
+                        
+                        # 添加 X-APM-APPID
+                        if ! grep -q "X-APM-APPID" "$dest_path"; then
+                            echo "X-APM-APPID=${NEW_PKGNAME:-$ORIG_PKGNAME}" >> "$dest_path"
+                        fi
+                        
+                        log.info "桌面文件处理完成: $filename"
+                    fi
+                done
+                break
+            else
+                log.warn "无效的选择，请重新输入"
+            fi
+            done
+            
+            # 第二阶段：选择并复制图标文件
+            while true; do
+                echo ""
+                log.info "=== 图标文件处理 ==="
+                # 查找所有图标文件
+                ICON_FILES=()
+                while IFS= read -r -d '' file; do
+                    ICON_FILES+=("$file")
+                done < <(find "$CRAFT_DIR/core/usr/share" \( -name "*.png" -o -name "*.svg" -o -name "*.xpm" \) -type f -print0 2>/dev/null || true)
+                
+                if [ ${#ICON_FILES[@]} -eq 0 ]; then
+                    log.warn "在 $CRAFT_DIR/core/usr/share 中未找到图标文件"
+                    break
+                fi
+                
+                log.info "找到以下图标文件:"
+                for i in "${!ICON_FILES[@]}"; do
+                    echo "  [$((i+1))] ${ICON_FILES[$i]}"
+                done
+                
+                read -r -p "请选择要复制的图标文件编号（输入多个编号用空格分隔，输入 0 跳过）: " selection
+                
+                if [ "$selection" = "0" ]; then
+                    log.info "跳过图标文件复制"
+                    break
+                fi
+                
+                # 处理选择
+                IFS=' ' read -ra SELECTED_INDEXES <<< "$selection"
+                if [ ${#SELECTED_INDEXES[@]} -gt 0 ]; then
+                    mkdir -p "$CRAFT_DIR/new-pkg/var/lib/apm/${NEW_PKGNAME}/entries/icons" 2>/dev/null || true
+                
+                for idx in "${SELECTED_INDEXES[@]}"; do
+                if [[ "$idx" =~ ^[0-9]+$ ]] && [ "$idx" -ge 1 ] && [ "$idx" -le ${#ICON_FILES[@]} ]; then
+                        icon_file="${ICON_FILES[$((idx-1))]}"
+                        filename=$(basename "$icon_file")
+                        # 按尺寸分类图标
+                        size_match=$(echo "$icon_file" | grep -oE '/[0-9]+x[0-9]+/' || echo "")
+                        if [ -n "$size_match" ]; then
+                            size=$(echo "$size_match" | sed 's|/||g')
+                            dest_path="$CRAFT_DIR/new-pkg/var/lib/apm/${NEW_PKGNAME}/entries/icons/hicolor/$size/apps/$filename"
+                        else
+                            # 尝试从路径中提取尺寸
+                            size_dir=$(dirname "$icon_file" | grep -oE '[0-9]+x[0-9]+' || echo "")
+                            if [ -n "$size_dir" ]; then
+                                dest_path="$CRAFT_DIR/new-pkg/var/lib/apm/${NEW_PKGNAME}/entries/icons/hicolor/$size_dir/apps/$filename"
+                        else
+                            # 无法确定尺寸，放在通用目录
+                            dest_path="$CRAFT_DIR/new-pkg/var/lib/apm/${NEW_PKGNAME}/entries/icons/apps/$filename"
+                            fi
+                        fi
+                        
+                        # 确保目标目录存在
+                        mkdir -p "$(dirname "$dest_path")"
+                        
+                        if [ -f "$icon_file" ]; then
+                            # 如果是符号链接，找到源文件
+                            if [ -L "$icon_file" ]; then
+                                target_file=$(readlink -f "$icon_file" 2>/dev/null || echo "$icon_file")
+                        log.info "处理符号链接: $icon_file -> $target_file"
+                            icon_file="$target_file"
+                        fi
+                        
+                        log.info "复制图标文件: $icon_file -> $dest_path"
+                            cp "$icon_file" "$dest_path"
+                        fi
+                    fi
+                done
+                break
+            else
+                log.warn "无效的选择，请重新输入"
+            fi
+            done
+        fi
+        
+        # 询问是否要进行后续打包（允许返回 shell）
+        while true; do
+            echo ""
+            read -r -p "是否现在进行新 APM 包的自动打包？ (y = 打包, r = 返回 shell, n = 跳过打包) [y/r/n]: " yn
             case "$yn" in
                 y|Y)
                     # 如果缺少包名或版本，交互询问
                     if [ -z "$NEW_PKGNAME" ]; then
-                        read -r -p "请输入要创建的包名 (Package): " NEW_PKGNAME
-                    fi
-                    if [ -z "$NEW_VERSION" ] || [[ "$NEW_VERSION" == "-apm" ]]; then
-                        read -r -p "请输入要创建的版本 (Version): " NEW_VERSION
-                    fi
-                    break
-                    ;;
-                r|R)
-                    log.info "返回交互 shell（使用 ace-run-pkg）。退出 shell 后再次询问。"
-                    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg bash --login || true
-                    ;;
-                n|N)
-                    log.info "跳过自动打包。脚本结束。"
-                    exit 0
-                    ;;
-                *)
-                    echo "请输入 y, r, 或 n。"
-                    ;;
+                read -r -p "请输入要创建的包名 (Package): " NEW_PKGNAME
+                fi
+                if [ -z "$NEW_VERSION" ] || [[ "$NEW_VERSION" == "-apm" ]]; then
+                read -r -p "请输入要创建的版本 (Version): " NEW_VERSION
+                fi
+                break
+                ;;
+            r|R)
+                log.info "返回交互 shell（使用 ace-run-pkg）。退出 shell 后再次询问。"
+                sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg bash --login || true
+                ;;
+            n|N)
+                log.info "跳过自动打包。脚本结束。"
+                exit 0
+                ;;
+            *)
+                echo "请输入 y, r, 或 n。"
+                ;;
             esac
         done
     fi
@@ -436,14 +594,9 @@ log.info "复制文件到新的APM包..."
 # 复制 /usr/share 内容到 entries
 if [ -d "$CRAFT_DIR/extract/usr/share" ]; then
     log.info "复制 /usr/share 内容..."
-    mkdir -p "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries"
-    cp -r "$CRAFT_DIR/extract/usr/share/"* "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries/" 2>/dev/null || true
-fi
-
-# 复制 /opt/apps/<orig_pkg>/entries（如果存在）
-if [ -n "$ORIG_PKGNAME" ] && [ -d "$CRAFT_DIR/extract/opt/apps/$ORIG_PKGNAME/entries" ]; then
-    log.info "复制 /opt/apps/$ORIG_PKGNAME/entries 内容..."
-    cp -r "$CRAFT_DIR/extract/opt/apps/$ORIG_PKGNAME/entries/"* "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries/" 2>/dev/null || true
+    mkdir -p "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries/applications" 2>/dev/null || true)
+    if [ -d "$CRAFT_DIR/extract/usr/share/applications" ]; then
+        cp -r "$CRAFT_DIR/extract/usr/share/applications/"* "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries/applications/" 2>/dev/null || true
 fi
 
 # 复制融合环境（core, work）到新的包内 files（以便运行时使用）
@@ -462,7 +615,7 @@ cleanup_mount
 calculate_directory_size() {
     local dir="$1"
     if [ -d "$dir" ]; then
-        du -sk "$dir" | cut -f1
+    du -sk "$dir" | cut -f1
     else
         echo "0"
     fi
