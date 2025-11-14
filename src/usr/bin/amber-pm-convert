@@ -334,13 +334,13 @@ interactive_copy_entries() {
     local desktop_files=()
     while IFS= read -r -d '' file; do
         [[ -f "$file" ]] && desktop_files+=("$file")
-    done < <(find "$core_dir/usr/share" -name "*.desktop" -print0 2>/dev/null || true)
+    done < <(find "$core_dir/usr/share/applications" -name "*.desktop" -print0 2>/dev/null || true)
     
     # 查找图标文件
     local icon_files=()
     while IFS= read -r -d '' file; do
         [[ -f "$file" ]] && icon_files+=("$file")
-    done < <(find "$core_dir/usr/share" \( -name "*.png" -o -name "*.svg" -o -name "*.xpm" \) -print0 2>/dev/null || true)
+    done < <(find "$core_dir/usr/share/icons" \( -name "*.png" -o -name "*.svg" -o -name "*.xpm" \) -print0 2>/dev/null || true)
     
     # 处理桌面文件
     if [ ${#desktop_files[@]} -gt 0 ]; then
