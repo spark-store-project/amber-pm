@@ -24,7 +24,7 @@ APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上
 
 ## 使用方法
 ```
-APM - Amber Package Manager 1.0.10
+APM - Amber Package Manager 1.1.3
 
 Usage:
   apm [COMMAND] [OPTIONS] [PACKAGES...]
