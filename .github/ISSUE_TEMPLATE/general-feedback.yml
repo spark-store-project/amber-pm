@@ -1,0 +1,90 @@
+name: "📢 常规反馈与问题报告"
+description: "报告一个 Bug，提出新功能建议，或咨询使用问题。对于安全问题，请使用专门的安全漏洞报告模板。"
+title: "请简要描述反馈内容..."
+labels: ["needs-triage"] # 会自动添加此标签，便于筛选
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您花时间提交反馈！为了帮助我们更有效地理解和解决问题，请尽可能详细地填写以下信息。
+
+  - type: dropdown
+    id: feedback-type
+    attributes:
+      label: "反馈类型"
+      description: "请选择最符合您需求的类别。"
+      options:
+        - "🐛 Bug 报告"
+        - "💡 功能请求 / 建议"
+        - "📚 文档改进"
+        - "❓ 使用求助"
+        - "其他"
+      default: 0
+    validations:
+      required: true
+
+  - type: input
+    id: apm-version
+    attributes:
+      label: "APM 容器版本 / 镜像 Tag"
+      description: "您使用的是哪个版本？（例如：v1.2.0, latest, 或提交哈希）"
+      placeholder: "v1.2.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "问题描述或建议"
+      description: "清晰而详细地描述您遇到的问题，或者您希望的新功能是什么。"
+      placeholder: |
+        **对于 Bug：**
+        - 发生了什么？
+        - 您期望的行为是什么？
+        - 实际发生了什么？
+
+        **对于功能请求：**
+        - 您希望实现什么功能？
+        - 这个功能解决了什么痛点？
+        - 是否有其他类似的解决方案可供参考？
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: "复现步骤 / 具体场景"
+      description: "如果是 Bug，请提供详细的复现步骤。如果是功能请求，请描述您的使用场景。"
+      placeholder: |
+        复现步骤：
+        1. 使用配置 '...'
+        2. 运行命令 '....'
+        3. 看到错误 '....'
+
+        或
+
+        使用场景：
+        当我在 [某个特定情况] 下，需要实现 [某个目标]，但目前无法做到，因为...
+      validations:
+        required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: "环境信息"
+      description: "请提供您的运行环境细节。"
+      placeholder: |
+        - 操作系统： （例如： Ubuntu 20.04, macOS Monterey）
+        - Docker 版本： （请输入 `docker version` 的输出）
+        - Kubernetes 版本（如果适用）：
+        - 其他相关配置：
+      validations:
+        required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: "补充信息"
+      description: "请添加任何其他有助于解决问题的信息，如日志片段、截图、核心配置文件（请脱敏）等。"
+      validations:
+        required: false
