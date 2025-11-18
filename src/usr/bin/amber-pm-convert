@@ -28,7 +28,7 @@ usage() {
     echo "示例:"
     echo "  $SCRIPT_NAME --base amber-pm-trixie /path/to/package.deb"
     echo "  $SCRIPT_NAME --manual --base amber-pm-trixie   # 只融合挂载并进入手动 shell"
-    echo "  $SCRIPT_NAME --manual --base a --pkgname newpkg --version 1.2.3 /path/to/package.deb"
+    echo "  $SCRIPT_NAME --manual --base amber-pm-trixie --pkgname newpkg --version 1.2.3 /path/to/package.deb"
     echo ""
     echo "说明: 最下层的base在最后面，从上到下写base"
 }
