@@ -20,7 +20,12 @@ APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上
 
 前往右侧的 [发行版](https://gitee.com/amber-ce/amber-pm/releases/) 即可下载体验
 
-目前支持 Debian 10+ , Arch Linux , fedora 42/43, openSUSE(测试) ,deepin/UOS 20+ , Ubuntu 20+ , 银河麒麟v10sp1，openkylin
+完成安装后，根据您的 CPU 架构选择对应的网页商店使用
+
+[![输入图片说明](https://foruda.gitee.com/images/1762931968047152487/8318e890_4915358.png "apm-webstore-x86-zh-light.png")](https://erotica.spark-app.store/amd64-apm/)
+[![输入图片说明](https://foruda.gitee.com/images/1762931903886978407/7ba50cd5_4915358.png "apm-webstore-arm-zh-light.png")](https://erotica.spark-app.store/arm64-apm/)
+
+目前 apm 应用支持 Debian 10+ , Arch Linux , fedora 42/43, openSUSE(测试) ,deepin/UOS 20+ , Ubuntu 20+ , 银河麒麟v10sp1，openkylin
 
 ## 使用方法
 ```
