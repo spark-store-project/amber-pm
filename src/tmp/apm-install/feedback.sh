@@ -3,7 +3,7 @@
 
 
 # 提取配置信息
-VERSION=@VERSION@
+VERSION=@VERSION@-apm
 UUID=$(cat /etc/machine-id)
 # 获取系统信息
 LSB_OUTPUT=$(lsb_release --all 2>/dev/null)
