@@ -14,10 +14,8 @@ systemctl restart apparmor.service || true
                 sysctl -p /usr/lib/sysctl.d/apm.conf
         fi
 		# Send statistics data
-		/tmp/apm-install/feedback.sh &
+		/var/lib/apm/apm/files/feedback.sh &
 
-		# Remove temp dir
-		rm -rf /tmp/apm-install
 
 ;;
 	triggered)
