@@ -45,18 +45,19 @@ if [ "${APM_USE_SANDBOX:-0}" = "1" ]; then
     ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir MUSIC))
 fi
 
-#### This part is for args pharm
-if [ "$1" = "" ];then
-container_command="bash"
+if [ $# -eq 0 ]; then
+    container_command="bash"
 else
-container_command="$1"
-shift
-for arg in "$@"; do
-        arg="$(echo "${arg}x" | sed 's|'\''|'\'\\\\\'\''|g')"
-        arg="${arg%x}"
-        container_command="${container_command} '${arg}'"
-done
+    # 正确转义所有参数，处理空格和特殊字符
+    container_command=""
+    for arg in "$@"; do
+        # 使用 printf %q 进行安全的 shell 转义
+        escaped_arg="$(printf "%q" "$arg")"
+        container_command="${container_command} ${escaped_arg}"
+    done
+    container_command="${container_command# }"  # 移除开头的空格
 fi
+
 #########################################################################################
 ##########合成bwrap 1. 基础函数配置段
 # 初始化 EXEC_COMMAND 为 bwrap 基础指令
@@ -198,4 +199,4 @@ add_command "bash -c \"${container_command}\""
 # echo "${EXEC_COMMAND}"
 
 # 注意: 实际执行时，请确保所有变量（如 $uid, $chrootEnvPath 等）都已正确定义
-eval ${EXEC_COMMAND}
+eval "${EXEC_COMMAND}"

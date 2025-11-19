@@ -111,7 +111,7 @@ apm_exec(){
     fuse-overlayfs -o lowerdir="$lowerdir",upperdir="${PATH_PREFIX}/var/lib/apm/${coredir}/files/core/",workdir="${PATH_PREFIX}/var/lib/apm/${coredir}/files/work/" "/tmp/apm/${coredir}"
     
     # 执行命令
-    chrootEnvPath="/tmp/apm/${coredir}" ${APM_RUN_EXEC} "$@"
+    chrootEnvPath="/tmp/apm/${coredir}" "${APM_RUN_EXEC}" "$@"
     
     # 卸载
     umount "/tmp/apm/${coredir}"
