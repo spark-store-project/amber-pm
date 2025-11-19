@@ -21,7 +21,7 @@ JSON_DATA=$(cat <<EOF
   "Distributor ID": "$DISTRIBUTOR_ID",
   "Release": "$RELEASE",
   "Architecture": "$ARCHITECTURE",
-  "Store_Version": "$SIMPLIFIED_VERSION",
+  "Store_Version": "$VERSION",
   "UUID": "$UUID",
   "TIME": "$CURRENT_TIME"
 }
