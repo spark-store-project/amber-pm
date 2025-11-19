@@ -93,4 +93,6 @@ Commands:
 
 ## APM 构建 Tips
 
+> 请 `cp -vr src pkg` 来创建一个准备配置的环境，随后 `./build.sh pkg` 即可进行进一步的打包操作
+
 APM 使用了特殊的精简版 AmberCE 兼容环境，相关的 Tips 见 [Tips](tips.md)。
