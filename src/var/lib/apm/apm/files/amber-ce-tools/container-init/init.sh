@@ -135,8 +135,10 @@ apt install --reinstall /amber-ce-tools/ace-host-integration.deb -y
 
 
 cd /amber-ce-tools/data-dir/
+mkdir -p usr/share/templates  
 ln -sfv ../../usr/share/applications/ .
 ln -sfv ../../usr/share/icons/ .
+ln -sfv ../../usr/share/templates/   .
 #ln -svf ../../usr/share/mime .
 rm -vf ./mime
 update-desktop-database /usr/share/applications || true
