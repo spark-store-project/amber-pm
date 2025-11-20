@@ -1,16 +1,30 @@
 #!/bin/bash
 
-
-
 # 提取配置信息
 VERSION=@VERSION@-apm
-UUID=$(cat /etc/machine-id)
-# 获取系统信息
-LSB_OUTPUT=$(lsb_release --all 2>/dev/null)
-DISTRIBUTOR_ID=$(echo "$LSB_OUTPUT" | grep -i 'Distributor ID:' | awk -F: '{print $2}' | xargs)
-RELEASE=$(echo "$LSB_OUTPUT" | grep -i 'Release:' | awk -F: '{print $2}' | xargs)
-ARCHITECTURE=$(uname -m)
+UUID=$(cat /etc/machine-id 2>/dev/null || echo "unknown")
 
+# 获取系统信息 - 不依赖 lsb_release
+if [ -f /etc/os-release ]; then
+    # 现代 Linux 系统使用 /etc/os-release
+    source /etc/os-release
+    DISTRIBUTOR_ID="$NAME"
+    RELEASE="$VERSION_ID"
+elif [ -f /etc/redhat-release ]; then
+    # RedHat/CentOS 系统
+    DISTRIBUTOR_ID=$(cat /etc/redhat-release | awk '{print $1}')
+    RELEASE=$(cat /etc/redhat-release | sed -n 's/.*release \([0-9][0-9.]*\).*/\1/p')
+elif [ -f /etc/debian_version ]; then
+    # Debian 系统
+    DISTRIBUTOR_ID="Debian"
+    RELEASE=$(cat /etc/debian_version)
+else
+    # 其他系统
+    DISTRIBUTOR_ID="Unknown"
+    RELEASE="Unknown"
+fi
+
+ARCHITECTURE=$(uname -m)
 
 # 构建当前时间
 CURRENT_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -27,6 +41,7 @@ JSON_DATA=$(cat <<EOF
 }
 EOF
 )
+
 #echo "Spark Store Feedback"
 # 调试输出 JSON 数据
 #echo "发送的 JSON 数据："
