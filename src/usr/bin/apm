@@ -116,6 +116,7 @@ apm_exec(){
         if [[ ${#override_dirs[@]} -gt 0 ]]; then
             log.debug "Adding override directories to the top layer"
             lowerdirs=("${override_dirs[@]}" "${lowerdirs[@]}")
+        fi
     fi
     
     # 检查是否找到了有效的lowerdir
