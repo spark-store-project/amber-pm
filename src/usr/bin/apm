@@ -63,10 +63,8 @@ apm_exec(){
     while : ; do
         # 构建info文件的路径
         next_info_file="${current_dir}/info"
-#        echo "${current_dir}/info"
         # 检查info文件是否存在
         if [[ ! -f "$next_info_file" ]]; then
-#            log.debug "No more info files found, stopping recursion."
             break
         fi
         
@@ -88,12 +86,37 @@ apm_exec(){
         # 尝试获取下一个依赖信息的路径
         local next_basedir=$(tail -n 1 "$next_info_file")
         if [[ -z "$next_basedir" || ! -d "${PATH_PREFIX}/var/lib/apm/${next_basedir}" ]]; then
-            log.debug "No further dependencies found, ending recursion."
             break
         fi
         # 更新当前目录，递归处理下一个依赖
         current_dir="${PATH_PREFIX}/var/lib/apm/${next_basedir}"
     done
+    
+    # 添加info_layer_override功能
+    local override_file="${PATH_PREFIX}/var/lib/apm/${coredir}/info_layer_override"
+    if [[ -f "$override_file" ]]; then
+        log.debug "Found info_layer_override file: $override_file"
+        local override_dirs=()
+        
+        # 读取override文件并构建override目录数组
+        while IFS= read -r basedir; do
+            [[ -z "$basedir" ]] && continue
+            
+            # 检查override目录是否存在
+            if [[ -d "${PATH_PREFIX}/var/lib/apm/${basedir}/files/ace-env" ]]; then
+                override_dirs+=("${PATH_PREFIX}/var/lib/apm/${basedir}/files/ace-env")
+            elif [[ -d "${PATH_PREFIX}/var/lib/apm/${basedir}/files/core" ]]; then
+                override_dirs+=("${PATH_PREFIX}/var/lib/apm/${basedir}/files/core")
+            else
+                log.warn "Neither ace-env nor core directory found for override base: $basedir"
+            fi
+        done < "$override_file"
+        
+        # 将override目录插入到现有lowerdirs数组的最前面（最左侧/最顶层）
+        if [[ ${#override_dirs[@]} -gt 0 ]]; then
+            log.debug "Adding override directories to the top layer"
+            lowerdirs=("${override_dirs[@]}" "${lowerdirs[@]}")
+    fi
     
     # 检查是否找到了有效的lowerdir
     if [[ ${#lowerdirs[@]} -eq 0 ]]; then
