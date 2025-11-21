@@ -91,6 +91,8 @@ Commands:
 
 详见 [Packaging-demo](Packaging-demo)。
 
+> 1.1.5+ 版本支持了覆盖 base 功能，相见 https://gitee.com/amber-ce/amber-pm/blob/master/Packaging-demo/README.md#info_layer_override-%E6%96%87%E4%BB%B6
+
 ## APM 构建 Tips
 
 > 请 `cp -vr src pkg` 来创建一个准备配置的环境，随后 `./build.sh pkg` 即可进行进一步的打包操作
