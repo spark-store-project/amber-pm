@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # 提取配置信息
-VERSION=@VERSION@-apm
+VERSION_FEEDBACK=@VERSION@-apm
 UUID=$(cat /etc/machine-id 2>/dev/null || echo "unknown")
+
 
 # 获取系统信息 - 不依赖 lsb_release
 if [ -f /etc/os-release ]; then
@@ -35,7 +36,7 @@ JSON_DATA=$(cat <<EOF
   "Distributor ID": "$DISTRIBUTOR_ID",
   "Release": "$RELEASE",
   "Architecture": "$ARCHITECTURE",
-  "Store_Version": "$VERSION",
+  "Store_Version": "$VERSION_FEEDBACK",
   "UUID": "$UUID",
   "TIME": "$CURRENT_TIME"
 }
