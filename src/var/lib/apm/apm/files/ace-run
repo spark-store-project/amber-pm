@@ -27,7 +27,7 @@ function ensure_dir() {
         return 0
     fi
 }
-chrootEnvPath="${chrootEnvPath:-$(pwd)/ace-env}"
+chrootEnvPath="${chrootEnvPath:-$(dirname $0)/ace-env}"
 
 APM_PKG_NAME="${APM_PKG_NAME:-apm-general}"
 
