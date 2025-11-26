@@ -513,7 +513,7 @@ process_desktop_file() {
         log.warn "桌面文件可能未正确修改: $desktop_file"
     fi
 }
-}
+
 
 # 4. 如果有 DEB 文件，进行自动化的检查、解包与修改
 if [ -n "$DEB_PATH" ]; then
