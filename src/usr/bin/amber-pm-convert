@@ -464,9 +464,11 @@ process_desktop_file() {
     # 新增：精确路径检查
     local apps_path1="/usr/share/applications"
     local apps_path2="/opt/apps/${ORIG_PKGNAME}/entries/applications"
+    local apps_path3="/usr/local/share/applications"
     
     if [[ ! "$desktop_file" =~ ^.*${apps_path1}/.*\.desktop$ ]] && 
-       [[ ! "$desktop_file" =~ ^.*${apps_path2}/.*\.desktop$ ]]; then
+       [[ ! "$desktop_file" =~ ^.*${apps_path2}/.*\.desktop$ ]] &&
+       [[ ! "$desktop_file" =~ ^.*${apps_path3}/.*\.desktop$ ]]; then
         log.debug "跳过非应用程序 desktop 文件: $desktop_file"
         return 0
     fi
