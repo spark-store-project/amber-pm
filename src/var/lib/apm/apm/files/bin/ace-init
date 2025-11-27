@@ -112,6 +112,10 @@ chown -R root $chrootEnvPath
 mkdir -p $chrootEnvPath/amber-ce-tools/data-dir
 ln -sv ../../usr/share/applications $chrootEnvPath/amber-ce-tools/data-dir/
 ln -sv ../../usr/share/icons $chrootEnvPath/amber-ce-tools/data-dir/
+mkdir -p chrootEnvPath/usr/share/templates  
+ln -sfv ../../usr/share/templates/   $chrootEnvPath/amber-ce-tools/data-dir/
+
+
 chmod 777 -R $chrootEnvPath/usr/share/icons
 rm -vfr $chrootEnvPath/dev/*
 true
