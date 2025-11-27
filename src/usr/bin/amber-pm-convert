@@ -461,6 +461,15 @@ interactive_copy_entries() {
 process_desktop_file() {
     local desktop_file="$1"
     local pkgname="$2"
+    # 新增：精确路径检查
+    local apps_path1="/usr/share/applications"
+    local apps_path2="/opt/apps/${ORIG_PKGNAME}/entries/applications"
+    
+    if [[ ! "$desktop_file" =~ ^.*${apps_path1}/.*\.desktop$ ]] && 
+       [[ ! "$desktop_file" =~ ^.*${apps_path2}/.*\.desktop$ ]]; then
+        log.debug "跳过非应用程序 desktop 文件: $desktop_file"
+        return 0
+    fi
     
     log.info "处理桌面文件: $desktop_file"
     
