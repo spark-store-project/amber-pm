@@ -1,41 +1,41 @@
 #!/bin/bash
 
 # APM软件包转换器 - 将DEB包转换为APM格式
-log.warn()  { echo -e "[\e[33mWARN\e[0m]:  \e[1m$*\e[0m"; }
+log.warn()  { echo -e "[\e[33mWARN\e[0m]:  \e[1m$*\e[0m"; }
 log.error() { echo -e "[\e[31mERROR\e[0m]: \e[1m$*\e[0m"; }
-log.info()  { echo -e "[\e[96mINFO\e[0m]:  \e[1m$*\e[0m"; }
+log.info()  { echo -e "[\e[96mINFO\e[0m]:  \e[1m$*\e[0m"; }
 log.debug() { echo -e "[\e[32mDEBUG\e[0m]: \e[1m$*\e[0m"; }
 
 SCRIPT_NAME=$(basename "$0")
 
 if ! command -v dpkg > /dev/null ; then
-    log.error "若想使用APM软件包转换器，您需先安装dpkg"
-    exit 1
+    log.error "若想使用APM软件包转换器，您需先安装dpkg"
+    exit 1
 fi
 
 # 显示用法信息
 usage() {
-    echo "用法: $SCRIPT_NAME [--manual] --base <basename> [--base <basename> ...] <deb文件路径>"
-    echo "       或者在手动模式下不传入 DEB 文件： $SCRIPT_NAME --manual --base <basename> [--base <basename> ...]"
-    echo ""
-    echo "参数说明:"
-    echo "  --manual     启用手动模式：融合挂载后打开交互 shell，退出 shell 后脚本继续"
-    echo "  --basename   必填参数（非手动模式下），指定基础环境名称，可多次使用"
-    echo "  deb文件路径  要转换的DEB文件路径（非手动且非空模式下必填）"
-    echo "  --pkgname    可选参数，指定新包的包名（默认使用原DEB包名）"
-    echo "  --version    可选参数，指定新包的版本号（默认在原版本后追加'-apm'）"
-    echo ""
-    echo "示例:"
-    echo "  $SCRIPT_NAME --base amber-pm-trixie /path/to/package.deb"
-    echo "  $SCRIPT_NAME --manual --base amber-pm-trixie   # 只融合挂载并进入手动 shell"
-    echo "  $SCRIPT_NAME --manual --base amber-pm-trixie --pkgname newpkg --version 1.2.3 /path/to/package.deb"
-    echo ""
-    echo "说明: 最下层的base在最后面，从上到下写base"
+    echo "用法: $SCRIPT_NAME [--manual] --base <basename> [--base <basename> ...] <deb文件路径>"
+    echo "       或者在手动模式下不传入 DEB 文件： $SCRIPT_NAME --manual --base <basename> [--base <basename> ...]"
+    echo ""
+    echo "参数说明:"
+    echo "  --manual     启用手动模式：融合挂载后打开交互 shell，退出 shell 后脚本继续"
+    echo "  --basename   必填参数（非手动模式下），指定基础环境名称，可多次使用"
+    echo "  deb文件路径  要转换的DEB文件路径（非手动且非空模式下必填）"
+    echo "  --pkgname    可选参数，指定新包的包名（默认使用原DEB包名）"
+    echo "  --version    可选参数，指定新包的版本号（默认在原版本后追加'-apm'）"
+    echo ""
+    echo "示例:"
+    echo "  $SCRIPT_NAME --base amber-pm-trixie /path/to/package.deb"
+    echo "  $SCRIPT_NAME --manual --base amber-pm-trixie   # 只融合挂载并进入手动 shell"
+    echo "  $SCRIPT_NAME --manual --base amber-pm-trixie --pkgname newpkg --version 1.2.3 /path/to/package.deb"
+    echo ""
+    echo "说明: 最下层的base在最后面，从上到下写base"
 }
 
 # 解析参数
-BASENAMES=()        # 存放实际用于构建 overlay 的 base（可能会被递归添加）
-BASENAMES_ORIG=()   # 存放用户原始输入的 base 列表（用于 control 中 Depends 等）
+BASENAMES=()        # 存放实际用于构建 overlay 的 base（可能会被递归添加）
+BASENAMES_ORIG=()   # 存放用户原始输入的 base 列表（用于 control 中 Depends 等）
 DEB_PATH=""
 PKGNAME=""
 VERSION=""
@@ -43,81 +43,81 @@ MANUAL_MODE=false
 
 # 简单参数解析（顺序敏感）
 while [ $# -gt 0 ]; do
-    case "$1" in
-        --base)
-            if [ -z "$2" ]; then
-                log.error "--base 后需要跟名称"
-                usage
-                exit 1
-            fi
-            BASENAMES+=("$2")
-            BASENAMES_ORIG+=("$2")
-            shift 2
-            ;;
-        --pkgname)
-            PKGNAME="$2"
-            shift 2
-            ;;
-        --version)
-            VERSION="$2"
-            shift 2
-            ;;
-        --manual)
-            MANUAL_MODE=true
-            shift
-            ;;
-        -*)
-            log.error "未知选项: $1"
-            usage
-            exit 1
-            ;;
-        *)
-            # 非选项，视为 DEB 路径（只接受第一个非选项作为 DEB）
-            if [ -z "$DEB_PATH" ]; then
-                DEB_PATH="$1"
-                shift
-            else
-                log.error "未知参数或多余的参数: $1"
-                usage
-                exit 1
-            fi
-            ;;
-    esac
+    case "$1" in
+        --base)
+            if [ -z "$2" ]; then
+                log.error "--base 后需要跟名称"
+                usage
+                exit 1
+            fi
+            BASENAMES+=("$2")
+            BASENAMES_ORIG+=("$2")
+            shift 2
+            ;;
+        --pkgname)
+            PKGNAME="$2"
+            shift 2
+            ;;
+        --version)
+            VERSION="$2"
+            shift 2
+            ;;
+        --manual)
+            MANUAL_MODE=true
+            shift
+            ;;
+        -*)
+            log.error "未知选项: $1"
+            usage
+            exit 1
+            ;;
+        *)
+            # 非选项，视为 DEB 路径（只接受第一个非选项作为 DEB）
+            if [ -z "$DEB_PATH" ]; then
+                DEB_PATH="$1"
+                shift
+            else
+                log.error "未知参数或多余的参数: $1"
+                usage
+                exit 1
+            fi
+            ;;
+    esac
 done
 
 # 基本参数验证：
 # 如果不是手动模式，则至少需要一个 --base 和一个 deb 文件
 if [ "$MANUAL_MODE" = false ]; then
-    if [ ${#BASENAMES[@]} -eq 0 ] || [ -z "$DEB_PATH" ]; then
-        log.error "错误：非手动模式下至少需要一个 --base 参数 且 必须提供 DEB 文件路径"
-        usage
-        exit 1
-    fi
+    if [ ${#BASENAMES[@]} -eq 0 ] || [ -z "$DEB_PATH" ]; then
+        log.error "错误：非手动模式下至少需要一个 --base 参数 且 必须提供 DEB 文件路径"
+        usage
+        exit 1
+    fi
 else
-    # 手动模式下允许没有 DEB_FILE，但仍然要有至少一个 base
-    if [ ${#BASENAMES[@]} -eq 0 ]; then
-        log.error "错误：手动模式下仍需提供至少一个 --base 参数"
-        usage
-        exit 1
-    fi
+    # 手动模式下允许没有 DEB_FILE，但仍然要有至少一个 base
+    if [ ${#BASENAMES[@]} -eq 0 ]; then
+        log.error "错误：手动模式下仍需提供至少一个 --base 参数"
+        usage
+        exit 1
+    fi
 fi
 
 # 如果传入了 DEB_PATH，检查文件是否存在
 if [ -n "$DEB_PATH" ] && [ ! -f "$DEB_PATH" ]; then
-    log.error "错误：DEB文件不存在: $DEB_PATH"
-    exit 1
+    log.error "错误：DEB文件不存在: $DEB_PATH"
+    exit 1
 fi
 
 log.info "开始转换（手动模式: $MANUAL_MODE）"
 log.info "基础环境数量: ${#BASENAMES_ORIG[@]}"
 for i in "${!BASENAMES_ORIG[@]}"; do
-    log.info "  原始基础环境 $((i+1)): ${BASENAMES_ORIG[$i]}"
+    log.info "  原始基础环境 $((i+1)): ${BASENAMES_ORIG[$i]}"
 done
 
 if [ -n "$DEB_PATH" ]; then
-    log.info "目标 DEB: $DEB_PATH"
+    log.info "目标 DEB: $DEB_PATH"
 else
-    log.info "未提供 DEB 文件，处于纯手动模式（手动修改/安装/打包）"
+    log.info "未提供 DEB 文件，处于纯手动模式（手动修改/安装/打包）"
 fi
 
 # 1. 创建临时工作目录
@@ -128,20 +128,20 @@ export CRAFT_DIR
 
 # 检查是否已挂载，避免重复挂载
 cleanup_mount() {
-    if mountpoint -q "$CRAFT_DIR/mergedir"; then
-        log.info "解除挂载: $CRAFT_DIR/mergedir"
-        sudo umount "$CRAFT_DIR/mergedir" || true
-    fi
+    if mountpoint -q "$CRAFT_DIR/mergedir"; then
+        log.info "解除挂载: $CRAFT_DIR/mergedir"
+        sudo umount "$CRAFT_DIR/mergedir" || true
+    fi
 }
 
 # 清理函数
 cleanup() {
-    log.info "开始清理..."
-    cleanup_mount
-    if [ -d "$CRAFT_DIR" ]; then
-        log.info "删除临时目录: $CRAFT_DIR"
-        sudo rm -rf "$CRAFT_DIR"
-    fi
+    log.info "开始清理..."
+    cleanup_mount
+    if [ -d "$CRAFT_DIR" ]; then
+        log.info "删除临时目录: $CRAFT_DIR"
+        sudo rm -rf "$CRAFT_DIR"
+    fi
 }
 
 # 设置退出时清理
@@ -149,52 +149,52 @@ trap cleanup EXIT
 
 # 递归获取info文件中的依赖 (会把新依赖追加到 BASENAMES 数组中)
 get_recursive_basenames() {
-    local basename="$1"
-    # 注意：根据之前脚本结构，info 存放在 /var/lib/apm/apm/files/ace-env/var/lib/apm/<basename>/info
-    local base_dir="/var/lib/apm/apm/files/ace-env/var/lib/apm/$basename"
-    local info_file="$base_dir/info"
+    local basename="$1"
+    # 注意：根据之前脚本结构，info 存放在 /var/lib/apm/apm/files/ace-env/var/lib/apm/<basename>/info
+    local base_dir="/var/lib/apm/apm/files/ace-env/var/lib/apm/$basename"
+    local info_file="$base_dir/info"
 
-    if [ -f "$info_file" ]; then
-        log.info "读取info文件: $info_file"
-        while IFS= read -r base; do
-            [[ -z "$base" ]] && continue
-            # 如果依赖的 base 没有被记录过，则递归添加
-            local found=false
-            for existing in "${BASENAMES[@]}"; do
-                if [ "$existing" = "$base" ]; then
-                    found=true
-                    break
-                fi
-            done
-            if [ "$found" = false ]; then
-                BASENAMES+=("$base")
-                get_recursive_basenames "$base"
-            fi
-        done < "$info_file"
-    else
-        log.info "未找到info文件，跳过: $info_file"
-    fi
+    if [ -f "$info_file" ]; then
+        log.info "读取info文件: $info_file"
+        while IFS= read -r base; do
+            [[ -z "$base" ]] && continue
+            # 如果依赖的 base 没有被记录过，则递归添加
+            local found=false
+            for existing in "${BASENAMES[@]}"; do
+                if [ "$existing" = "$base" ]; then
+                    found=true
+                    break
+                fi
+            done
+            if [ "$found" = false ]; then
+                BASENAMES+=("$base")
+                get_recursive_basenames "$base"
+            fi
+        done < "$info_file"
+    else
+        log.info "未找到info文件，跳过: $info_file"
+    fi
 }
 
 # 递归获取所有基础环境（从用户输入的 base 开始）
 for BASE in "${BASENAMES[@]}"; do
-    get_recursive_basenames "$BASE"
+    get_recursive_basenames "$BASE"
 done
 
 # 如果用户传了 DEB，则读取原包信息（否则跳过）
 if [ -n "$DEB_PATH" ]; then
-    log.info "检查原DEB包信息..."
-    ORIG_PKGNAME=$(dpkg -f "$DEB_PATH" Package 2>/dev/null || echo "")
-    ORIG_VERSION=$(dpkg -f "$DEB_PATH" Version 2>/dev/null || echo "")
-    ORIG_ARCH=$(dpkg -f "$DEB_PATH" Architecture 2>/dev/null || echo "")
+    log.info "检查原DEB包信息..."
+    ORIG_PKGNAME=$(dpkg -f "$DEB_PATH" Package 2>/dev/null || echo "")
+    ORIG_VERSION=$(dpkg -f "$DEB_PATH" Version 2>/dev/null || echo "")
+    ORIG_ARCH=$(dpkg -f "$DEB_PATH" Architecture 2>/dev/null || echo "")
 
-    log.info "原包名: ${ORIG_PKGNAME:-未知}"
-    log.info "原版本: ${ORIG_VERSION:-未知}"
-    log.info "原架构: ${ORIG_ARCH:-unknown}"
+    log.info "原包名: ${ORIG_PKGNAME:-未知}"
+    log.info "原版本: ${ORIG_VERSION:-未知}"
+    log.info "原架构: ${ORIG_ARCH:-unknown}"
 else
-    ORIG_PKGNAME=""
-    ORIG_VERSION=""
-    ORIG_ARCH="$(dpkg --print-architecture 2>/dev/null || echo "unknown")"
+    ORIG_PKGNAME=""
+    ORIG_VERSION=""
+    ORIG_ARCH="$(dpkg --print-architecture 2>/dev/null || echo "unknown")"
 fi
 
 # 设置新包名和版本（若手动模式且未指定，则稍后询问）
@@ -210,21 +210,21 @@ log.info "构建 overlay lowerdir 路径..."
 LOWERDIRS=()
 
 for BASENAME in "${BASENAMES[@]}"; do
-    ACE_ENV_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/ace-env"
-    CORE_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/core"
+    ACE_ENV_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/ace-env"
+    CORE_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/core"
 
-    if [ -d "$ACE_ENV_PATH" ]; then
-        log.info "使用 ace-env 路径: $ACE_ENV_PATH"
-        LOWERDIRS+=("$ACE_ENV_PATH")
-    elif [ -d "$CORE_PATH" ]; then
-        log.info "使用 core 路径: $CORE_PATH"
-        LOWERDIRS+=("$CORE_PATH")
-    else
-        log.error "错误：基础环境路径不存在: $BASENAME"
-        log.error "  检查的路径: $ACE_ENV_PATH"
-        log.error "  检查的路径: $CORE_PATH"
-        exit 1
-    fi
+    if [ -d "$ACE_ENV_PATH" ]; then
+        log.info "使用 ace-env 路径: $ACE_ENV_PATH"
+        LOWERDIRS+=("$ACE_ENV_PATH")
+    elif [ -d "$CORE_PATH" ]; then
+        log.info "使用 core 路径: $CORE_PATH"
+        LOWERDIRS+=("$CORE_PATH")
+    else
+        log.error "错误：基础环境路径不存在: $BASENAME"
+        log.error "  检查的路径: $ACE_ENV_PATH"
+        log.error "  检查的路径: $CORE_PATH"
+        exit 1
+    fi
 done
 
 # 将 lowerdirs 数组用冒号连接
@@ -234,12 +234,12 @@ log.debug "最终 lowerdir: $LOWERDIR"
 # 3. 进行融合挂载
 log.info "正在进行融合挂载..."
 sudo mount -t overlay overlay \
-    -o "lowerdir=$LOWERDIR,upperdir=$CRAFT_DIR/core/,workdir=$CRAFT_DIR/work/" \
-    "$CRAFT_DIR/mergedir"
+    -o "lowerdir=$LOWERDIR,upperdir=$CRAFT_DIR/core/,workdir=$CRAFT_DIR/work/" \
+    "$CRAFT_DIR/mergedir"
 
 if ! mountpoint -q "$CRAFT_DIR/mergedir"; then
-    log.error "错误：融合挂载失败"
-    exit 1
+    log.error "错误：融合挂载失败"
+    exit 1
 fi
 
 log.info "挂载完成: $CRAFT_DIR/mergedir"
@@ -250,350 +250,351 @@ log.debug "已导出 chrootEnvPath=$chrootEnvPath"
 
 # 如果在手动模式下，立即打开交互 shell 并在退出后继续脚本
 if [ "$MANUAL_MODE" = true ]; then
-    log.info "进入手动模式：将在融合挂载环境中打开交互 shell（使用 ace-run-pkg）。"
-    log.info "在 shell 中，您可以手动修改、测试安装或进行其他操作。退出 shell 后脚本将继续。"
-    # 启动交互 shell，保留环境变量（使用 sudo -E）
-    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg bash --login || {
-        log.warn "ace-run-pkg shell 退出或出现错误，继续脚本..."
-    }
-    log.info "用户已退出手动 shell，脚本将继续。"
-    # 如果没有 DEB，询问是否要进行后续打包（允许返回 shell）
-    if [ -z "$DEB_PATH" ]; then
-        while true; do
-            echo ""
-            read -r -p "未提供 DEB 文件。是否现在进行新 APM 包的自动打包？ (y = 打包, r = 返回 shell, n = 跳过打包) [y/r/n]: " yn
-            case "$yn" in
-                y|Y)
-                    # 如果缺少包名或版本，交互询问
-                    if [ -z "$NEW_PKGNAME" ]; then
-                        read -r -p "请输入要创建的包名 (Package): " NEW_PKGNAME
-                    fi
-                    if [ -z "$NEW_VERSION" ] || [[ "$NEW_VERSION" == "-apm" ]]; then
-                        read -r -p "请输入要创建的版本 (Version): " NEW_VERSION
-                    fi
-                    break
-                    ;;
-                r|R)
-                    log.info "返回交互 shell（使用 ace-run-pkg）。退出 shell 后再次询问。"
-                    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg bash --login || true
-                    ;;
-                n|N)
-                    log.info "跳过自动打包。脚本结束。"
-                    exit 0
-                    ;;
-                *)
-                    echo "请输入 y, r, 或 n。"
-                    ;;
-            esac
-        done
-    fi
+    log.info "进入手动模式：将在融合挂载环境中打开交互 shell（使用 ace-run-pkg）。"
+    log.info "在 shell 中，您可以手动修改、测试安装或进行其他操作。退出 shell 后脚本将继续。"
+    # 启动交互 shell，保留环境变量（使用 sudo -E）
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg bash --login || {
+        log.warn "ace-run-pkg shell 退出或出现错误，继续脚本..."
+    }
+    log.info "用户已退出手动 shell，脚本将继续。"
+    # 如果没有 DEB，询问是否要进行后续打包（允许返回 shell）
+    if [ -z "$DEB_PATH" ]; then
+        while true; do
+            echo ""
+            read -r -p "未提供 DEB 文件。是否现在进行新 APM 包的自动打包？ (y = 打包, r = 返回 shell, n = 跳过打包) [y/r/n]: " yn
+            case "$yn" in
+                y|Y)
+                    # 如果缺少包名或版本，交互询问
+                    if [ -z "$NEW_PKGNAME" ]; then
+                        read -r -p "请输入要创建的包名 (Package): " NEW_PKGNAME
+                    fi
+                    if [ -z "$NEW_VERSION" ] || [[ "$NEW_VERSION" == "-apm" ]]; then
+                        read -r -p "请输入要创建的版本 (Version): " NEW_VERSION
+                    fi
+                    break
+                    ;;
+                r|R)
+                    log.info "返回交互 shell（使用 ace-run-pkg）。退出 shell 后再次询问。"
+                    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg bash --login || true
+                    ;;
+                n|N)
+                    log.info "跳过自动打包。脚本结束。"
+                    exit 0
+                    ;;
+                *)
+                    echo "请输入 y, r, 或 n。"
+                    ;;
+            esac
+        done
+    fi
 fi
 
 # 到这里：非手动模式或手动模式退出后继续（如果是非手动并且有 DEB，继续原本流程）
 
 # 函数：查找并处理符号链接，返回实际文件路径
 resolve_symlink() {
-    local file="$1"
-    local target_dir="$2"
-    
-    if [ -L "$file" ]; then
-        # 获取符号链接目标
-        local target=$(readlink "$file")
-        
-        # 如果目标是绝对路径，则在目标目录中查找
-        if [[ "$target" == /* ]]; then
-            local resolved_path="$target_dir${target}"
-            if [ -f "$resolved_path" ]; then
-                echo "$resolved_path"
-                return 0
-            fi
-        else
-            # 相对路径，在符号链接所在目录解析
-            local link_dir=$(dirname "$file")
-            local resolved_path="$link_dir/$target"
-            if [ -f "$resolved_path" ]; then
-                echo "$resolved_path"
-                return 0
-            fi
-        fi
-    fi
-    
-    # 如果不是符号链接或解析失败，返回原文件
-    echo "$file"
+    local file="$1"
+    local target_dir="$2"
+    
+    if [ -L "$file" ]; then
+        # 获取符号链接目标
+        local target=$(readlink "$file")
+        
+        # 如果目标是绝对路径，则在目标目录中查找
+        if [[ "$target" == /* ]]; then
+            local resolved_path="$target_dir${target}"
+            if [ -f "$resolved_path" ]; then
+                echo "$resolved_path"
+                return 0
+            fi
+        else
+            # 相对路径，在符号链接所在目录解析
+            local link_dir=$(dirname "$file")
+            local resolved_path="$link_dir/$target"
+            if [ -f "$resolved_path" ]; then
+                echo "$resolved_path"
+                return 0
+            fi
+        fi
+    fi
+    
+    # 如果不是符号链接或解析失败，返回原文件
+    echo "$file"
 }
 
 # 函数：交互式选择文件复制到entries目录（用于手动模式无DEB情况）
 interactive_copy_entries() {
-    local core_dir="$CRAFT_DIR/core"
-    local entries_dir="$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries"
-    
-    log.info "开始交互式选择文件复制到 entries 目录..."
-    mkdir -p "$entries_dir/applications" "$entries_dir/icons"
-    
-    # 查找桌面文件
-    local desktop_files=()
-    while IFS= read -r -d '' file; do
-        [[ -f "$file" ]] && desktop_files+=("$file")
-    done < <(find "$core_dir/usr/share" -name "*.desktop" -print0 2>/dev/null || true)
-    
-    # 查找图标文件
-    local icon_files=()
-    while IFS= read -r -d '' file; do
-        [[ -f "$file" ]] && icon_files+=("$file")
-    done < <(find "$core_dir/usr/share" \( -name "*.png" -o -name "*.svg" -o -name "*.xpm" \) -print0 2>/dev/null || true)
-    
-    # 处理桌面文件
-    if [ ${#desktop_files[@]} -gt 0 ]; then
-        log.info "找到 ${#desktop_files[@]} 个桌面文件:"
-        for i in "${!desktop_files[@]}"; do
-            local file="${desktop_files[$i]}"
-            local filename=$(basename "$file")
-            echo "  $((i+1)). $filename"
-            
-            # 检查是否是符号链接
-            if [ -L "$file" ]; then
-                local target=$(readlink "$file")
-                echo "      → 符号链接指向: $target"
-                # 解析符号链接获取实际文件
-                local resolved_file=$(resolve_symlink "$file" "$core_dir")
-                if [ "$resolved_file" != "$file" ] && [ -f "$resolved_file" ]; then
-                    echo "      → 解析为: $(basename "$resolved_file")"
-                    desktop_files[$i]="$resolved_file"
-                fi
-            fi
-        done
-        
-        echo ""
-        read -r -p "请选择要复制的桌面文件编号（多个用逗号分隔，all=全部，none=跳过）: " desktop_choice
-        
-        if [[ "$desktop_choice" =~ ^[Aa][Ll][Ll]$ ]]; then
-            # 复制所有桌面文件到 entries/applications
-            for file in "${desktop_files[@]}"; do
-                local filename=$(basename "$file")
-                local dest_path="$entries_dir/applications/$filename"
-                cp -v "$file" "$dest_path"
-                
-                # 处理桌面文件内容
-                process_desktop_file "$dest_path" "$NEW_PKGNAME"
-            done
-        elif [[ ! "$desktop_choice" =~ ^[Nn][Oo][Nn][Ee]$ ]] && [ -n "$desktop_choice" ]; then
-            # 处理选择的文件
-            IFS=',' read -ra choices <<< "$desktop_choice"
-            for choice in "${choices[@]}"; do
-                choice=$(echo "$choice" | tr -d ' ')
-                if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#desktop_files[@]} ]; then
-                    local idx=$((choice-1))
-                    local file="${desktop_files[$idx]}"
-                    local filename=$(basename "$file")
-                    local dest_path="$entries_dir/applications/$filename"
-                    cp -v "$file" "$dest_path"
-                    
-                    # 处理桌面文件内容
-                    process_desktop_file "$dest_path" "$NEW_PKGNAME"
-                else
-                    log.warn "无效的选择: $choice"
-                fi
-            done
-        else
-            log.info "跳过桌面文件复制"
-        fi
-    else
-        log.info "未找到桌面文件"
-    fi
-    
-    # 处理图标文件
-    if [ ${#icon_files[@]} -gt 0 ]; then
-        log.info "找到 ${#icon_files[@]} 个图标文件:"
-        for i in "${!icon_files[@]}"; do
-            local file="${icon_files[$i]}"
-            local filename=$(basename "$file")
-            echo "  $((i+1)). $filename"
-            
-            # 检查是否是符号链接
-            if [ -L "$file" ]; then
-                local target=$(readlink "$file")
-                echo "      → 符号链接指向: $target"
-                # 解析符号链接获取实际文件
-                local resolved_file=$(resolve_symlink "$file" "$core_dir")
-                if [ "$resolved_file" != "$file" ] && [ -f "$resolved_file" ]; then
-                    echo "      → 解析为: $(basename "$resolved_file")"
-                    icon_files[$i]="$resolved_file"
-                fi
-            fi
-        done
-        
-        echo ""
-        read -r -p "请选择要复制的图标文件编号（多个用逗号分隔，all=全部，none=跳过）: " icon_choice
-        
-        if [[ "$icon_choice" =~ ^[Aa][Ll][Ll]$ ]]; then
-            # 复制所有图标文件到 entries/icons
-            for file in "${icon_files[@]}"; do
-                local filename=$(basename "$file")
-                local dest_path="$entries_dir/icons/$filename"
-                cp -v "$file" "$dest_path"
-            done
-        elif [[ ! "$icon_choice" =~ ^[Nn][Oo][Nn][Ee]$ ]] && [ -n "$icon_choice" ]; then
-            # 处理选择的文件
-            IFS=',' read -ra choices <<< "$icon_choice"
-            for choice in "${choices[@]}"; do
-                choice=$(echo "$choice" | tr -d ' ')
-                if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#icon_files[@]} ]; then
-                    local idx=$((choice-1))
-                    local file="${icon_files[$idx]}"
-                    local filename=$(basename "$file")
-                    local dest_path="$entries_dir/icons/$filename"
-                    cp -v "$file" "$dest_path"
-                else
-                    log.warn "无效的选择: $choice"
-                fi
-            done
-        else
-            log.info "跳过图标文件复制"
-        fi
-    else
-        log.info "未找到图标文件"
-    fi
+    local core_dir="$CRAFT_DIR/core"
+    local entries_dir="$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries"
+    
+    log.info "开始交互式选择文件复制到 entries 目录..."
+    mkdir -p "$entries_dir/applications" "$entries_dir/icons"
+    
+    # 查找桌面文件
+    local desktop_files=()
+    while IFS= read -r -d '' file; do
+        [[ -f "$file" ]] && desktop_files+=("$file")
+    done < <(find "$core_dir/usr/share" -name "*.desktop" -print0 2>/dev/null || true)
+    
+    # 查找图标文件
+    local icon_files=()
+    while IFS= read -r -d '' file; do
+        [[ -f "$file" ]] && icon_files+=("$file")
+    done < <(find "$core_dir/usr/share" \( -name "*.png" -o -name "*.svg" -o -name "*.xpm" \) -print0 2>/dev/null || true)
+    
+    # 处理桌面文件
+    if [ ${#desktop_files[@]} -gt 0 ]; then
+        log.info "找到 ${#desktop_files[@]} 个桌面文件:"
+        for i in "${!desktop_files[@]}"; do
+            local file="${desktop_files[$i]}"
+            local relative_path="${file#$core_dir}" # 获取相对于 core_dir 的路径
+            echo "  $((i+1)). $relative_path" # 打印相对路径
+            
+            # 检查是否是符号链接
+            if [ -L "$file" ]; then
+                local target=$(readlink "$file")
+                echo "      → 符号链接指向: $target"
+                # 解析符号链接获取实际文件
+                local resolved_file=$(resolve_symlink "$file" "$core_dir")
+                if [ "$resolved_file" != "$file" ] && [ -f "$resolved_file" ]; then
+                    local resolved_relative_path="${resolved_file#$core_dir}"
+                    echo "      → 解析为: $resolved_relative_path"
+                    desktop_files[$i]="$resolved_file"
+                fi
+            fi
+        done
+        
+        echo ""
+        read -r -p "请选择要复制的桌面文件编号（多个用逗号分隔，all=全部，none=跳过）: " desktop_choice
+        
+        if [[ "$desktop_choice" =~ ^[Aa][Ll][Ll]$ ]]; then
+            # 复制所有桌面文件到 entries/applications
+            for file in "${desktop_files[@]}"; do
+                local filename=$(basename "$file")
+                local dest_path="$entries_dir/applications/$filename"
+                cp -v "$file" "$dest_path"
+                
+                # 处理桌面文件内容
+                process_desktop_file "$dest_path" "$NEW_PKGNAME"
+            done
+        elif [[ ! "$desktop_choice" =~ ^[Nn][Oo][Nn][Ee]$ ]] && [ -n "$desktop_choice" ]; then
+            # 处理选择的文件
+            IFS=',' read -ra choices <<< "$desktop_choice"
+            for choice in "${choices[@]}"; do
+                choice=$(echo "$choice" | tr -d ' ')
+                if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#desktop_files[@]} ]; then
+                    local idx=$((choice-1))
+                    local file="${desktop_files[$idx]}"
+                    local filename=$(basename "$file")
+                    local dest_path="$entries_dir/applications/$filename"
+                    cp -v "$file" "$dest_path"
+                    
+                    # 处理桌面文件内容
+                    process_desktop_file "$dest_path" "$NEW_PKGNAME"
+                else
+                    log.warn "无效的选择: $choice"
+                fi
+            done
+        else
+            log.info "跳过桌面文件复制"
+        fi
+    else
+        log.info "未找到桌面文件"
+    fi
+    
+    # 处理图标文件
+    if [ ${#icon_files[@]} -gt 0 ]; then
+        log.info "找到 ${#icon_files[@]} 个图标文件:"
+        for i in "${!icon_files[@]}"; do
+            local file="${icon_files[$i]}"
+            local relative_path="${file#$core_dir}"  # <-- 修改：获取相对于 core_dir 的路径
+            echo "  $((i+1)). $relative_path"          # <-- 修改：打印相对路径
+            
+            # 检查是否是符号链接
+            if [ -L "$file" ]; then
+                local target=$(readlink "$file")
+                echo "      → 符号链接指向: $target"
+                # 解析符号链接获取实际文件
+                local resolved_file=$(resolve_symlink "$file" "$core_dir")
+                if [ "$resolved_file" != "$file" ] && [ -f "$resolved_file" ]; then
+                    local resolved_relative_path="${resolved_file#$core_dir}" # <-- 修改：计算解析后的相对路径
+                    echo "      → 解析为: $resolved_relative_path"              # <-- 修改：打印解析后的相对路径
+                    icon_files[$i]="$resolved_file"
+                fi
+            fi
+        done
+        
+        echo ""
+        read -r -p "请选择要复制的图标文件编号（多个用逗号分隔，all=全部，none=跳过）: " icon_choice
+        
+        if [[ "$icon_choice" =~ ^[Aa][Ll][Ll]$ ]]; then
+            # 复制所有图标文件到 entries/icons
+            for file in "${icon_files[@]}"; do
+                local filename=$(basename "$file")
+                local dest_path="$entries_dir/icons/$filename"
+                cp -v "$file" "$dest_path"
+            done
+        elif [[ ! "$icon_choice" =~ ^[Nn][Oo][Nn][Ee]$ ]] && [ -n "$icon_choice" ]; then
+            # 处理选择的文件
+            IFS=',' read -ra choices <<< "$icon_choice"
+            for choice in "${choices[@]}"; do
+                choice=$(echo "$choice" | tr -d ' ')
+                if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#icon_files[@]} ]; then
+                    local idx=$((choice-1))
+                    local file="${icon_files[$idx]}"
+                    local filename=$(basename "$file")
+                    local dest_path="$entries_dir/icons/$filename"
+                    cp -v "$file" "$dest_path"
+                else
+                    log.warn "无效的选择: $choice"
+                fi
+            done
+        else
+            log.info "跳过图标文件复制"
+        fi
+    else
+        log.info "未找到图标文件"
+    fi
 }
 
 
-# 函数：处理桌面文件内容
 # 函数：处理桌面文件内容（安全版本，避免重复处理）
 process_desktop_file() {
-    local desktop_file="$1"
-    local pkgname="$2"
-    # 新增：精确路径检查
-    local apps_path1="/usr/share/applications"
-    local apps_path2="/opt/apps/${ORIG_PKGNAME}/entries/applications"
-    local apps_path3="/usr/local/share/applications"
-    
-    if [[ ! "$desktop_file" =~ ^.*${apps_path1}/.*\.desktop$ ]] && 
-       [[ ! "$desktop_file" =~ ^.*${apps_path2}/.*\.desktop$ ]] &&
-       [[ ! "$desktop_file" =~ ^.*${apps_path3}/.*\.desktop$ ]]; then
-        log.debug "跳过非应用程序 desktop 文件: $desktop_file"
-        return 0
-    fi
-    
-    log.info "处理桌面文件: $desktop_file"
-    
-    # 检查文件是否已经处理过（避免重复添加 apm run）
-    if grep -q "^Exec=apm run $pkgname " "$desktop_file"; then
-        log.info "桌面文件已经处理过，跳过: $desktop_file"
-        return 0
-    fi
-    
-    # 检查是否有其他包的 apm run 前缀（清理旧的）
-    if grep -q "^Exec=apm run [^ ]* " "$desktop_file"; then
-        log.info "发现旧的 apm run 前缀，清理后重新添加"
-        # 移除所有 apm run 前缀
-        sed -i "s|^Exec=apm run [^ ]* ||" "$desktop_file"
-    fi
-    
-    # 尝试用 busybox dos2unix（若不存在则跳过转换）
-    if command -v busybox >/dev/null 2>&1; then
-        busybox dos2unix "$desktop_file" 2>/dev/null || true
-    else
-        dos2unix "$desktop_file" 2>/dev/null || true
-    fi
-    
-    # 处理 Exec 行：在原有命令前追加 apm run $pkgname
-    if grep -q '^Exec=' "$desktop_file"; then
-        sed -i "s|^Exec=\(.*\)$|Exec=apm run $pkgname \1|" "$desktop_file"
-    fi
-    
-    # 删除 TryExec 行
-    if grep -q '^TryExec=' "$desktop_file"; then
-        sed -i '/^TryExec=/d' "$desktop_file"
-        log.info "已删除 TryExec 行"
-    fi
-    
-    # 处理 Icon 路径（若以 / 开头）
-    if grep -q '^Icon=/' "$desktop_file"; then
-        sed -i "s|^Icon=/|Icon=/var/lib/apm/apm/files/ace-env/var/lib/apm/$pkgname/files/core/|" "$desktop_file"
-    fi
-    
-    # 添加 X-APM-APPID（如果不存在）
-    if ! grep -q "X-APM-APPID" "$desktop_file"; then
-        echo "" >> "$desktop_file"
-        echo "X-APM-APPID=$pkgname" >> "$desktop_file"
-    fi
-    
-    # 检查修改结果并打印调试
-    if grep -q "apm run $pkgname" "$desktop_file"; then
-        log.info "桌面文件修改成功: $desktop_file"
-    else
-        log.warn "桌面文件可能未正确修改: $desktop_file"
-    fi
+    local desktop_file="$1"
+    local pkgname="$2"
+    # 新增：精确路径检查
+    local apps_path1="/usr/share/applications"
+    local apps_path2="/opt/apps/${ORIG_PKGNAME}/entries/applications"
+    local apps_path3="/usr/local/share/applications"
+    
+    if [[ ! "$desktop_file" =~ ^.*${apps_path1}/.*\.desktop$ ]] && 
+       [[ ! "$desktop_file" =~ ^.*${apps_path2}/.*\.desktop$ ]] &&
+       [[ ! "$desktop_file" =~ ^.*${apps_path3}/.*\.desktop$ ]]; then
+        log.debug "跳过非应用程序 desktop 文件: $desktop_file"
+        return 0
+    fi
+    
+    log.info "处理桌面文件: $desktop_file"
+    
+    # 检查文件是否已经处理过（避免重复添加 apm run）
+    if grep -q "^Exec=apm run $pkgname " "$desktop_file"; then
+        log.info "桌面文件已经处理过，跳过: $desktop_file"
+        return 0
+    fi
+    
+    # 检查是否有其他包的 apm run 前缀（清理旧的）
+    if grep -q "^Exec=apm run [^ ]* " "$desktop_file"; then
+        log.info "发现旧的 apm run 前缀，清理后重新添加"
+        # 移除所有 apm run 前缀
+        sed -i "s|^Exec=apm run [^ ]* ||" "$desktop_file"
+    fi
+    
+    # 尝试用 busybox dos2unix（若不存在则跳过转换）
+    if command -v busybox >/dev/null 2>&1; then
+        busybox dos2unix "$desktop_file" 2>/dev/null || true
+    else
+        dos2unix "$desktop_file" 2>/dev/null || true
+    fi
+    
+    # 处理 Exec 行：在原有命令前追加 apm run $pkgname
+    if grep -q '^Exec=' "$desktop_file"; then
+        sed -i "s|^Exec=\(.*\)$|Exec=apm run $pkgname \1|" "$desktop_file"
+    fi
+    
+    # 删除 TryExec 行
+    if grep -q '^TryExec=' "$desktop_file"; then
+        sed -i '/^TryExec=/d' "$desktop_file"
+        log.info "已删除 TryExec 行"
+    fi
+    
+    # 处理 Icon 路径（若以 / 开头）
+    if grep -q '^Icon=/' "$desktop_file"; then
+        sed -i "s|^Icon=/|Icon=/var/lib/apm/apm/files/ace-env/var/lib/apm/$pkgname/files/core/|" "$desktop_file"
+    fi
+    
+    # 添加 X-APM-APPID（如果不存在）
+    if ! grep -q "X-APM-APPID" "$desktop_file"; then
+        echo "" >> "$desktop_file"
+        echo "X-APM-APPID=$pkgname" >> "$desktop_file"
+    fi
+    
+    # 检查修改结果并打印调试
+    if grep -q "apm run $pkgname" "$desktop_file"; then
+        log.info "桌面文件修改成功: $desktop_file"
+    else
+        log.warn "桌面文件可能未正确修改: $desktop_file"
+    fi
 }
 
 
 # 4. 如果有 DEB 文件，进行自动化的检查、解包与修改
 if [ -n "$DEB_PATH" ]; then
 
-    # 在融合环境中更新包列表并做 dry-run 检查（如果 ace-run-pkg aptss 可用）
-    log.info "在融合环境中测试安装 DEB 包（dry-run）..."
-    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg aptss update || log.warn "aptss update 返回非零状态，继续但请注意"
-    if ! sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg aptss install "$DEB_PATH" --dry-run ; then
-        log.error "错误：安装前检查失败，DEB包可能无法在基础环境中安装"
-        log.error "请检查依赖关系或基础环境是否兼容"
-        exit 1
-    fi
-    log.info "安装前检查通过，准备进行提取与修改..."
-    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg mkdir -p /var/cache/apt/archives/partial
+    # 在融合环境中更新包列表并做 dry-run 检查（如果 ace-run-pkg aptss 可用）
+    log.info "在融合环境中测试安装 DEB 包（dry-run）..."
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg aptss update || log.warn "aptss update 返回非零状态，继续但请注意"
+    if ! sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg aptss install "$DEB_PATH" --dry-run ; then
+        log.error "错误：安装前检查失败，DEB包可能无法在基础环境中安装"
+        log.error "请检查依赖关系或基础环境是否兼容"
+        exit 1
+    fi
+    log.info "安装前检查通过，准备进行提取与修改..."
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg mkdir -p /var/cache/apt/archives/partial
 
-    # 提取 DEB 包内容并准备修改
-    log.info "提取并修改原DEB包..."
-    EXTRACT_DIR="$CRAFT_DIR/extract"
-    MODIFIED_DEB_DIR="$CRAFT_DIR/modified_deb"
-    mkdir -p "$EXTRACT_DIR"
-    mkdir -p "$MODIFIED_DEB_DIR/DEBIAN"
+    # 提取 DEB 包内容并准备修改
+    log.info "提取并修改原DEB包..."
+    EXTRACT_DIR="$CRAFT_DIR/extract"
+    MODIFIED_DEB_DIR="$CRAFT_DIR/modified_deb"
+    mkdir -p "$EXTRACT_DIR"
+    mkdir -p "$MODIFIED_DEB_DIR/DEBIAN"
 
-    dpkg -x "$DEB_PATH" "$EXTRACT_DIR"
-    dpkg -e "$DEB_PATH" "$MODIFIED_DEB_DIR/DEBIAN"
+    dpkg -x "$DEB_PATH" "$EXTRACT_DIR"
+    dpkg -e "$DEB_PATH" "$MODIFIED_DEB_DIR/DEBIAN"
 
-    # 处理 .desktop 文件
-    DESKTOP_MODIFIED=false
-    while IFS= read -r desktop_file; do
-        [ -z "$desktop_file" ] && continue
-        process_desktop_file "$desktop_file" "${NEW_PKGNAME:-$ORIG_PKGNAME}"
-        DESKTOP_MODIFIED=true
-    done < <(find "$EXTRACT_DIR" -name "*.desktop" -print)
+    # 处理 .desktop 文件
+    DESKTOP_MODIFIED=false
+    while IFS= read -r desktop_file; do
+        [ -z "$desktop_file" ] && continue
+        process_desktop_file "$desktop_file" "${NEW_PKGNAME:-$ORIG_PKGNAME}"
+        DESKTOP_MODIFIED=true
+    done < <(find "$EXTRACT_DIR" -name "*.desktop" -print)
 
-    if [ "$DESKTOP_MODIFIED" = false ]; then
-        log.info "未找到需要修改的 .desktop 文件"
-    fi
+    if [ "$DESKTOP_MODIFIED" = false ]; then
+        log.info "未找到需要修改的 .desktop 文件"
+    fi
 
-    # 复制修改后的文件结构到打包目录并重新打包 modified deb（供本地测试/安装使用）
-    MODIFIED_DEB_PATH="$CRAFT_DIR/modified_${ORIG_PKGNAME:-package}.deb"
-    log.info "重新打包修改后的 DEB: $MODIFIED_DEB_PATH"
-    mkdir -p "$MODIFIED_DEB_DIR/data"
-    cp -r "$EXTRACT_DIR"/* "$MODIFIED_DEB_DIR/" 2>/dev/null || true
+    # 复制修改后的文件结构到打包目录并重新打包 modified deb（供本地测试/安装使用）
+    MODIFIED_DEB_PATH="$CRAFT_DIR/modified_${ORIG_PKGNAME:-package}.deb"
+    log.info "重新打包修改后的 DEB: $MODIFIED_DEB_PATH"
+    mkdir -p "$MODIFIED_DEB_DIR/data"
+    cp -r "$EXTRACT_DIR"/* "$MODIFIED_DEB_DIR/" 2>/dev/null || true
 
-    (cd "$MODIFIED_DEB_DIR" && fakeroot dpkg-deb --build -Z none . "$MODIFIED_DEB_PATH") || {
-        log.error "错误：重新打包 DEB 失败"
-        exit 1
-    }
+    (cd "$MODIFIED_DEB_DIR" && fakeroot dpkg-deb --build -Z none . "$MODIFIED_DEB_PATH") || {
+        log.error "错误：重新打包 DEB 失败"
+        exit 1
+    }
 
-    if [ ! -f "$MODIFIED_DEB_PATH" ]; then
-        log.error "错误：重新打包后的 DEB 未生成: $MODIFIED_DEB_PATH"
-        exit 1
-    fi
-    log.info "修改后的 DEB 包已生成: $MODIFIED_DEB_PATH"
+    if [ ! -f "$MODIFIED_DEB_PATH" ]; then
+        log.error "错误：重新打包后的 DEB 未生成: $MODIFIED_DEB_PATH"
+        exit 1
+    fi
+    log.info "修改后的 DEB 包已生成: $MODIFIED_DEB_PATH"
 
-    # 可选：在融合环境中实际安装修改后的包（默认使用 ssaudit 命令）
-    if ! sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg ssaudit "$MODIFIED_DEB_PATH" --native --no-create-desktop-entry ; then
-        log.error "错误：修改后的 DEB 包安装失败（ssaudit）"
-        exit 1
-    fi
-    log.info "修改后的 DEB 包安装完成（ssaudit）"
+    # 可选：在融合环境中实际安装修改后的包（默认使用 ssaudit 命令）
+    if ! sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg ssaudit "$MODIFIED_DEB_PATH" --native --no-create-desktop-entry ; then
+        log.error "错误：修改后的 DEB 包安装失败（ssaudit）"
+        exit 1
+    fi
+    log.info "修改后的 DEB 包安装完成（ssaudit）"
 
 
 fi
 
-    # 清理 apt 缓存
-    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg aptss clean || true
-    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/apt/lists || true
-    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/aptss/lists || true
-    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/cache/apt/* || true
+    # 清理 apt 缓存
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg aptss clean || true
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/apt/lists || true
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/aptss/lists || true
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/cache/apt/* || true
 
 # 5. 创建新的 APM 包结构
 log.info "创建新的APM包结构..."
@@ -605,15 +606,15 @@ mkdir -p "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME"/{entries,files} 2>/dev/null |
 log.info "创建 info 文件（包含原始输入的基础环境）..."
 : > "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/info" 2>/dev/null || true
 for BASENAME in "${BASENAMES_ORIG[@]}"; do
-    echo "$BASENAME" >> "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/info"
-    log.info "  写入: $BASENAME"
+    echo "$BASENAME" >> "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/info"
+    log.info "  写入: $BASENAME"
 done
 
 log.info "创建 info_debug 文件（包含所有递归依赖的基础环境）..."
 : > "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/info_debug" 2>/dev/null || true
 for BASENAME in "${BASENAMES[@]}"; do
-    echo "$BASENAME" >> "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/info_debug"
-    log.info "  写入: $BASENAME"
+    echo "$BASENAME" >> "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/info_debug"
+    log.info "  写入: $BASENAME"
 done
 
 # 创建 postrm 脚本
@@ -622,15 +623,15 @@ cat > "$PKG_BUILD_DIR/DEBIAN/postrm" << 'EOF'
 PACKAGE_NAME="$DPKG_MAINTSCRIPT_PACKAGE"
 
 if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
-    echo "清理卸载残留"
-    rm -rf "/var/lib/apm/$PACKAGE_NAME"
-    for username in $(ls /home); do
-        if [ -d "/home/$username/.apm/$PACKAGE_NAME" ]; then
-            rm -fr "/home/$username/.apm/$PACKAGE_NAME"
-        fi
-    done
+    echo "清理卸载残留"
+    rm -rf "/var/lib/apm/$PACKAGE_NAME"
+    for username in $(ls /home); do
+        if [ -d "/home/$username/.apm/$PACKAGE_NAME" ]; then
+            rm -fr "/home/$username/.apm/$PACKAGE_NAME"
+        fi
+    done
 else
-    echo "非卸载，跳过清理"
+    echo "非卸载，跳过清理"
 fi
 EOF
 
@@ -641,20 +642,20 @@ log.info "复制文件到新的APM包..."
 
 # 如果是手动模式且没有DEB文件，进行交互式文件选择
 if [ "$MANUAL_MODE" = true ] && [ -z "$DEB_PATH" ]; then
-    interactive_copy_entries
+    interactive_copy_entries
 fi
 
 # 复制 /usr/share 内容到 entries
 if [ -d "$CRAFT_DIR/extract/usr/share" ]; then
-    log.info "复制 /usr/share 内容..."
-    mkdir -p "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries"
-    cp -r "$CRAFT_DIR/extract/usr/share/"* "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries/" 2>/dev/null || true
+    log.info "复制 /usr/share 内容..."
+    mkdir -p "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries"
+    cp -r "$CRAFT_DIR/extract/usr/share/"* "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries/" 2>/dev/null || true
 fi
 
 # 复制 /opt/apps/<orig_pkg>/entries（如果存在）
 if [ -n "$ORIG_PKGNAME" ] && [ -d "$CRAFT_DIR/extract/opt/apps/$ORIG_PKGNAME/entries" ]; then
-    log.info "复制 /opt/apps/$ORIG_PKGNAME/entries 内容..."
-    cp -r "$CRAFT_DIR/extract/opt/apps/$ORIG_PKGNAME/entries/"* "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries/" 2>/dev/null || true
+    log.info "复制 /opt/apps/$ORIG_PKGNAME/entries 内容..."
+    cp -r "$CRAFT_DIR/extract/opt/apps/$ORIG_PKGNAME/entries/"* "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries/" 2>/dev/null || true
 fi
 
 # 复制融合环境（core, work）到新的包内 files（以便运行时使用）
@@ -671,12 +672,12 @@ cleanup_mount
 
 # 8. 计算目录大小函数
 calculate_directory_size() {
-    local dir="$1"
-    if [ -d "$dir" ]; then
-        du -sk "$dir" | cut -f1
-    else
-        echo "0"
-    fi
+    local dir="$1"
+    if [ -d "$dir" ]; then
+        du -sk "$dir" | cut -f1
+    else
+        echo "0"
+    fi
 }
 
 # 构建依赖字符串 - 包含所有用户原始输入的 base（用于 control）
@@ -684,10 +685,10 @@ DEPENDS_STR=$(IFS=,; echo "${BASENAMES_ORIG[*]}")
 
 # 若打包前没有 NEW_PKGNAME/NEW_VERSION，交互询问（一般出现在手动无DEB场景）
 if [ -z "$NEW_PKGNAME" ]; then
-    read -r -p "请输入要创建的包名 (Package): " NEW_PKGNAME
+    read -r -p "请输入要创建的包名 (Package): " NEW_PKGNAME
 fi
 if [ -z "$NEW_VERSION" ] || [[ "$NEW_VERSION" == "-apm" ]]; then
-    read -r -p "请输入要创建的版本 (Version): " NEW_VERSION
+    read -r -p "请输入要创建的版本 (Version): " NEW_VERSION
 fi
 
 # 创建 control 文件
@@ -699,16 +700,16 @@ Maintainer: APM Converter <apm-convert@spark-app.store>
 Depends: $DEPENDS_STR
 Installed-Size: $(calculate_directory_size "$PKG_BUILD_DIR")
 Description: APM converted package from ${ORIG_PKGNAME:-original}
-  This package was automatically converted from the original deb package.
-  Based on: ${BASENAMES_ORIG[*]}
+  This package was automatically converted from the original deb package.
+  Based on: ${BASENAMES_ORIG[*]}
 EOF
 
 # 9. 打包并生成输出文件名
 OUTPUT_DEB="${NEW_PKGNAME}_${NEW_VERSION}_${ORIG_ARCH}.deb"
 log.info "开始使用 fakeroot 打包: $OUTPUT_DEB"
 fakeroot dpkg-deb -Z xz --build "$PKG_BUILD_DIR" "$OUTPUT_DEB" || {
-    log.error "错误：打包 APM 包失败"
-    exit 1
+    log.error "错误：打包 APM 包失败"
+    exit 1
 }
 
 log.info "转换完成！"
