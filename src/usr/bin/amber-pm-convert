@@ -538,6 +538,7 @@ if [ -n "$DEB_PATH" ]; then
         exit 1
     fi
     log.info "安装前检查通过，准备进行提取与修改..."
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg mkdir -p /var/cache/apt/archives/partial
 
     # 提取 DEB 包内容并准备修改
     log.info "提取并修改原DEB包..."
