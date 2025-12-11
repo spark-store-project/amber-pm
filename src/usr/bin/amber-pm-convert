@@ -233,7 +233,7 @@ log.debug "最终 lowerdir: $LOWERDIR"
 
 # 3. 进行融合挂载
 log.info "正在进行融合挂载..."
-sudo mount -t overlay overlay \
+sudo fuse-overlayfs \
     -o "lowerdir=$LOWERDIR,upperdir=$CRAFT_DIR/core/,workdir=$CRAFT_DIR/work/" \
     "$CRAFT_DIR/mergedir"
 
