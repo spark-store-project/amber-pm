@@ -1,3 +1,2 @@
-deb [Signed-by=/etc/apt/trusted.gpg.d/gxde.gpg] https://repo.gxde.top/gxde-os/lizhi ./
-# 大学镜像站
-#deb [Signed-by=/etc/apt/trusted.gpg.d/gxde.gpg] https://mirrors.cernet.edu.cn/GXDE/gxde-os/lizhi ./
+deb [signed-by=/etc/apt/trusted.gpg.d/apm.gpg] https://d.spark-app.store/apm-deb-source /
+# 上面这行配置可在4.1.2+版本普及后启用，可以做到分不同目录
