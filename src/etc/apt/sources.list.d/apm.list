@@ -1,0 +1,3 @@
+deb [Signed-by=/etc/apt/trusted.gpg.d/gxde.gpg] https://repo.gxde.top/gxde-os/lizhi ./
+# 大学镜像站
+#deb [Signed-by=/etc/apt/trusted.gpg.d/gxde.gpg] https://mirrors.cernet.edu.cn/GXDE/gxde-os/lizhi ./
