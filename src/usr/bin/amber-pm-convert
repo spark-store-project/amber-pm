@@ -648,6 +648,23 @@ fi
     sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/aptss/lists || true
     sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/cache/apt/* || true
 
+#清理 .dpkg-new 文件
+log.info "搜索并清理 .dpkg-new 文件..."
+# 在 core 目录下查找并删除所有以 .dpkg-new 结尾的文件
+find "$CRAFT_DIR/core" -name "*.dpkg-new" -type f 2>/dev/null | while read -r file; do
+    log.info "删除: $file"
+    rm -f "$file"
+done
+
+# 统计清理结果
+COUNT=$(find "$CRAFT_DIR/core" -name "*.dpkg-new" -type f 2>/dev/null | wc -l)
+if [ "$COUNT" -eq 0 ]; then
+    log.info "已清理所有 .dpkg-new 文件"
+else
+    log.warn "仍有 $COUNT 个 .dpkg-new 文件存在"
+fi
+
+
 # 5. 创建新的 APM 包结构
 log.info "创建新的APM包结构..."
 PKG_BUILD_DIR="$CRAFT_DIR/new-pkg"
