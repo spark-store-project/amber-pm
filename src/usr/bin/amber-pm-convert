@@ -233,7 +233,7 @@ log.debug "最终 lowerdir: $LOWERDIR"
 
 # 3. 进行融合挂载
 log.info "正在进行融合挂载..."
-sudo mount -t overlay overlay \
+sudo fuse-overlayfs \
     -o "lowerdir=$LOWERDIR,upperdir=$CRAFT_DIR/core/,workdir=$CRAFT_DIR/work/" \
     "$CRAFT_DIR/mergedir"
 
@@ -323,6 +323,7 @@ resolve_symlink() {
 }
 
 # 函数：交互式选择文件复制到entries目录（用于手动模式无DEB情况）
+# 函数：交互式选择文件复制到entries目录（用于手动模式无DEB情况）
 interactive_copy_entries() {
     local core_dir="$CRAFT_DIR/core"
     local entries_dir="$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/entries"
@@ -330,13 +331,13 @@ interactive_copy_entries() {
     log.info "开始交互式选择文件复制到 entries 目录..."
     mkdir -p "$entries_dir/applications" "$entries_dir/icons"
     
-    # 查找桌面文件
+    # 查找桌面文件（保留完整路径）
     local desktop_files=()
     while IFS= read -r -d '' file; do
         [[ -f "$file" ]] && desktop_files+=("$file")
     done < <(find "$core_dir/usr/share" -name "*.desktop" -print0 2>/dev/null || true)
     
-    # 查找图标文件
+    # 查找图标文件（保留完整路径）
     local icon_files=()
     while IFS= read -r -d '' file; do
         [[ -f "$file" ]] && icon_files+=("$file")
@@ -347,8 +348,9 @@ interactive_copy_entries() {
         log.info "找到 ${#desktop_files[@]} 个桌面文件:"
         for i in "${!desktop_files[@]}"; do
             local file="${desktop_files[$i]}"
-            local filename=$(basename "$file")
-            echo "  $((i+1)). $filename"
+            # 显示完整路径（相对于 core_dir）
+            local relative_path="${file#$core_dir}"
+            echo "  $((i+1)). $relative_path"
             
             # 检查是否是符号链接
             if [ -L "$file" ]; then
@@ -357,7 +359,8 @@ interactive_copy_entries() {
                 # 解析符号链接获取实际文件
                 local resolved_file=$(resolve_symlink "$file" "$core_dir")
                 if [ "$resolved_file" != "$file" ] && [ -f "$resolved_file" ]; then
-                    echo "      → 解析为: $(basename "$resolved_file")"
+                    local resolved_relative="${resolved_file#$core_dir}"
+                    echo "      → 解析为: $resolved_relative"
                     desktop_files[$i]="$resolved_file"
                 fi
             fi
@@ -367,10 +370,22 @@ interactive_copy_entries() {
         read -r -p "请选择要复制的桌面文件编号（多个用逗号分隔，all=全部，none=跳过）: " desktop_choice
         
         if [[ "$desktop_choice" =~ ^[Aa][Ll][Ll]$ ]]; then
-            # 复制所有桌面文件到 entries/applications
+            # 复制所有桌面文件到 entries/applications，但保持目录结构
             for file in "${desktop_files[@]}"; do
-                local filename=$(basename "$file")
-                local dest_path="$entries_dir/applications/$filename"
+                local relative_path="${file#$core_dir}"
+                local dest_filename=$(basename "$file")
+                
+                # 如果文件在 applications 目录下，直接复制到 entries/applications
+                if [[ "$relative_path" == /usr/share/applications/* ]]; then
+                    local dest_path="$entries_dir/applications/$dest_filename"
+                else
+                    # 其他位置的桌面文件，保持相对路径结构
+                    local path_dir=$(dirname "$relative_path")
+                    local dest_dir="$entries_dir/applications$path_dir"
+                    mkdir -p "$dest_dir"
+                    local dest_path="$dest_dir/$dest_filename"
+                fi
+                
                 cp -v "$file" "$dest_path"
                 
                 # 处理桌面文件内容
@@ -384,8 +399,19 @@ interactive_copy_entries() {
                 if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#desktop_files[@]} ]; then
                     local idx=$((choice-1))
                     local file="${desktop_files[$idx]}"
-                    local filename=$(basename "$file")
-                    local dest_path="$entries_dir/applications/$filename"
+                    local relative_path="${file#$core_dir}"
+                    local dest_filename=$(basename "$file")
+                    
+                    # 根据路径决定目标位置
+                    if [[ "$relative_path" == /usr/share/applications/* ]]; then
+                        local dest_path="$entries_dir/applications/$dest_filename"
+                    else
+                        local path_dir=$(dirname "$relative_path")
+                        local dest_dir="$entries_dir/applications$path_dir"
+                        mkdir -p "$dest_dir"
+                        local dest_path="$dest_dir/$dest_filename"
+                    fi
+                    
                     cp -v "$file" "$dest_path"
                     
                     # 处理桌面文件内容
@@ -406,8 +432,8 @@ interactive_copy_entries() {
         log.info "找到 ${#icon_files[@]} 个图标文件:"
         for i in "${!icon_files[@]}"; do
             local file="${icon_files[$i]}"
-            local filename=$(basename "$file")
-            echo "  $((i+1)). $filename"
+            local relative_path="${file#$core_dir}"
+            echo "  $((i+1)). $relative_path"
             
             # 检查是否是符号链接
             if [ -L "$file" ]; then
@@ -416,7 +442,8 @@ interactive_copy_entries() {
                 # 解析符号链接获取实际文件
                 local resolved_file=$(resolve_symlink "$file" "$core_dir")
                 if [ "$resolved_file" != "$file" ] && [ -f "$resolved_file" ]; then
-                    echo "      → 解析为: $(basename "$resolved_file")"
+                    local resolved_relative="${resolved_file#$core_dir}"
+                    echo "      → 解析为: $resolved_relative"
                     icon_files[$i]="$resolved_file"
                 fi
             fi
@@ -426,10 +453,23 @@ interactive_copy_entries() {
         read -r -p "请选择要复制的图标文件编号（多个用逗号分隔，all=全部，none=跳过）: " icon_choice
         
         if [[ "$icon_choice" =~ ^[Aa][Ll][Ll]$ ]]; then
-            # 复制所有图标文件到 entries/icons
+            # 复制所有图标文件到 entries/icons，保持目录结构
             for file in "${icon_files[@]}"; do
-                local filename=$(basename "$file")
-                local dest_path="$entries_dir/icons/$filename"
+                local relative_path="${file#$core_dir}"
+                local dest_filename=$(basename "$file")
+                
+                # 如果文件在 icons 主题目录下，直接复制到 entries/icons
+                if [[ "$relative_path" == /usr/share/icons/* ]] || 
+                   [[ "$relative_path" == /usr/share/pixmaps/* ]]; then
+                    local dest_path="$entries_dir/icons/$dest_filename"
+                else
+                    # 其他位置的图标文件，保持相对路径结构
+                    local path_dir=$(dirname "$relative_path")
+                    local dest_dir="$entries_dir/icons$path_dir"
+                    mkdir -p "$dest_dir"
+                    local dest_path="$dest_dir/$dest_filename"
+                fi
+                
                 cp -v "$file" "$dest_path"
             done
         elif [[ ! "$icon_choice" =~ ^[Nn][Oo][Nn][Ee]$ ]] && [ -n "$icon_choice" ]; then
@@ -440,8 +480,20 @@ interactive_copy_entries() {
                 if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#icon_files[@]} ]; then
                     local idx=$((choice-1))
                     local file="${icon_files[$idx]}"
-                    local filename=$(basename "$file")
-                    local dest_path="$entries_dir/icons/$filename"
+                    local relative_path="${file#$core_dir}"
+                    local dest_filename=$(basename "$file")
+                    
+                    # 根据路径决定目标位置
+                    if [[ "$relative_path" == /usr/share/icons/* ]] || 
+                       [[ "$relative_path" == /usr/share/pixmaps/* ]]; then
+                        local dest_path="$entries_dir/icons/$dest_filename"
+                    else
+                        local path_dir=$(dirname "$relative_path")
+                        local dest_dir="$entries_dir/icons$path_dir"
+                        mkdir -p "$dest_dir"
+                        local dest_path="$dest_dir/$dest_filename"
+                    fi
+                    
                     cp -v "$file" "$dest_path"
                 else
                     log.warn "无效的选择: $choice"
@@ -454,6 +506,7 @@ interactive_copy_entries() {
         log.info "未找到图标文件"
     fi
 }
+
 
 
 # 函数：处理桌面文件内容
@@ -538,6 +591,7 @@ if [ -n "$DEB_PATH" ]; then
         exit 1
     fi
     log.info "安装前检查通过，准备进行提取与修改..."
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg mkdir -p /var/cache/apt/archives/partial
 
     # 提取 DEB 包内容并准备修改
     log.info "提取并修改原DEB包..."
@@ -593,6 +647,23 @@ fi
     sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/apt/lists || true
     sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/aptss/lists || true
     sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/cache/apt/* || true
+
+#清理 .dpkg-new 文件
+log.info "搜索并清理 .dpkg-new 文件..."
+# 在 core 目录下查找并删除所有以 .dpkg-new 结尾的文件
+find "$CRAFT_DIR/core" -name "*.dpkg-new" -type f 2>/dev/null | while read -r file; do
+    log.info "删除: $file"
+    rm -f "$file"
+done
+
+# 统计清理结果
+COUNT=$(find "$CRAFT_DIR/core" -name "*.dpkg-new" -type f 2>/dev/null | wc -l)
+if [ "$COUNT" -eq 0 ]; then
+    log.info "已清理所有 .dpkg-new 文件"
+else
+    log.warn "仍有 $COUNT 个 .dpkg-new 文件存在"
+fi
+
 
 # 5. 创建新的 APM 包结构
 log.info "创建新的APM包结构..."
