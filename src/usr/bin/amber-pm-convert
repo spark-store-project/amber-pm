@@ -651,7 +651,7 @@ fi
 #清理 .dpkg-new 文件
 log.info "搜索并清理 .dpkg-new 文件..."
 # 在 core 目录下查找并删除所有以 .dpkg-new 结尾的文件
-find "$CRAFT_DIR/core" -name "*.dpkg-new" -type f 2>/dev/null | while read -r file; do
+find "$CRAFT_DIR/core" -name "*.dpkg-new" 2>/dev/null | while read -r file; do
     log.info "删除: $file"
     rm -f "$file"
 done
