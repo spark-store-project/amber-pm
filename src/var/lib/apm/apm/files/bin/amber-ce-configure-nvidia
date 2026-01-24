@@ -634,7 +634,7 @@ main() {
     fi
     
     # 6. 标记版本
-    echo "$nvidia_version" > "$$ACE_DIR/amber-ce-tools/nvidia_current_version"
+    echo "$nvidia_version" > "$ACE_DIR/amber-ce-tools/nvidia_current_version"
     
     # 7. 生成环境变量脚本
     cat > "$ACE_DIR/nvidia_env.sh" << EOF
@@ -692,12 +692,12 @@ export NVIDIA_CTK_LIBCUDA_DIR="/opt/extensions/nvidia/orig"
 
 EOF
     
-    chmod +x "$ACE_DIR/env.sh"
+    chmod +x "$ACE_DIR/nvidia_env.sh"
     
     log.info "NVIDIA驱动库和GLX组件已成功链接 Nvidia Driver Libs and GLX components are successfully linked."
     log.info "驱动版本: $nvidia_version"
     log.info "64位库: $has_64bit, 32位库: $has_32bit, GLX支持: $has_glx"
-    log.info "环境变量脚本已生成: $ACE_DIR/env.sh"
+    log.info "环境变量脚本已生成: $ACE_DIR/nvidia_env.sh"
     
     # 创建设备节点信息文件（供容器运行时使用）
     cat > "$ACE_DIR/devices.info" << EOF
