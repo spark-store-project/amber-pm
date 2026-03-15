@@ -330,13 +330,24 @@ for dir in "$APM_BASE"/*/; do
     fi
 done
 }
+
 # 主命令处理
 case "$1" in
     install|full-upgrade|upgrade|reinstall)
     command=$1
     shift
     amber-pm-debug aptss "$command" "$@"
+    exit_code=$?
+    
+    # 如果第一次执行失败，尝试修复并重试
+    if [ $exit_code -ne 0 ]; then
+        log.warn "Command failed, attempting to fix with dpkg --configure -a..."
+        amber-pm-debug dpkg --configure -a
+        log.info "Retrying $command..."
+        amber-pm-debug aptss "$command" "$@"
         exit_code=$?
+    fi
+    
     if [ $exit_code -eq 0 ]; then
         log.info "Operation successful"
     else
@@ -455,6 +466,7 @@ case "$1" in
         debug_info $@
         ;;
     ssaudit)
+        amber-pm-debug dpkg --configure -a
         amber-pm-debug ssaudit $@ --native
         exit_code=$?
     if [ $exit_code -eq 0 ]; then
