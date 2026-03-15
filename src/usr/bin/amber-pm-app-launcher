@@ -1,0 +1,84 @@
+#!/bin/bash
+
+# ===== 日志函数（简化版）=====
+log.info()  { echo "INFO: $*"; }
+log.warn()  { echo "WARN: $*"; }
+log.error() { echo "ERROR: $*"; }
+log.debug() { :; }  # APM 场景下可禁用 debug 日志
+
+# ===== APM 专用桌面文件扫描（单文件）=====
+function scan_apm_desktop_log() {
+    unset desktop_file_path
+    local pkg_name="$1"
+    local desktop_dir="/var/lib/apm/apm/files/ace-env/var/lib/apm/${pkg_name}/entries/applications"
+
+    [ -d "$desktop_dir" ] || return 1
+
+    while IFS= read -r -d '' path; do
+        [ -f "$path" ] || continue
+        if ! grep -q 'NoDisplay=true' "$path" 2>/dev/null; then
+            log.info "Found valid APM desktop file: $path"
+            export desktop_file_path="$path"
+            return 0
+        fi
+    done < <(find "$desktop_dir" -name "*.desktop" -type f -print0 2>/dev/null)
+
+    return 1
+}
+
+# ===== APM 专用桌面文件扫描（多文件列表）=====
+function scan_apm_desktop_list() {
+    local pkg_name="$1"
+    local desktop_dir="/var/lib/apm/apm/files/ace-env/var/lib/apm/${pkg_name}/entries/applications"
+    local result=""
+
+    [ -d "$desktop_dir" ] || { echo ""; return; }
+
+    while IFS= read -r -d '' path; do
+        [ -f "$path" ] || continue
+        if ! grep -q 'NoDisplay=true' "$path" 2>/dev/null; then
+            result+="${path},"
+        fi
+    done < <(find "$desktop_dir" -name "*.desktop" -type f -print0 2>/dev/null)
+
+    echo "${result%,}"
+}
+
+# ===== 启动应用 =====
+function launch_app() {
+    local desktop_path="${1#file://}"
+    local exec_cmd
+    shift  # 移除第一个参数（desktop_path），剩余的是要传递给应用的参数
+
+    # 提取并清理 Exec 行（移除字段代码如 %f %u 等）
+    exec_cmd=$(grep -m1 '^Exec=' "$desktop_path" | cut -d= -f2- | sed 's/%[fFuUdDnNickvm]*//g; s/^[[:space:]]*//; s/[[:space:]]*$//')
+    [ -z "$exec_cmd" ] && return 1
+
+    # 如果有额外参数，添加到命令中
+    if [ $# -gt 0 ]; then
+        log.info "Launching with arguments: $*"
+        exec_cmd="$exec_cmd $*"
+    fi
+
+    log.info "Launching: $exec_cmd"
+    ${SHELL:-bash} -c "$exec_cmd" &
+}
+
+# 导出函数供 ACE 环境调用
+export -f launch_app scan_apm_desktop_log scan_apm_desktop_list log.info log.error
+
+# ===== 主逻辑 =====
+[ $# -lt 1 ] && {
+    log.error "Usage: $0 <apm-package-name> [additional arguments...]"
+    exit 1
+}
+
+pkg_name="$1"
+shift  # 移除包名参数，剩余的都是要传递给应用的参数
+
+# 直接执行 launch 逻辑，并将剩余参数传递给 launch_app
+if scan_apm_desktop_log "$pkg_name" && launch_app "$desktop_file_path" "$@"; then
+    exit 0
+else
+    exit 1
+fi
