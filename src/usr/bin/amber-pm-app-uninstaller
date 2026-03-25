@@ -27,7 +27,7 @@ function zenity() {
 
 function notify-send() {
     local uid="$ORIGINAL_UID"
-    sudo -u "$ORIGINAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" notify-send "$@"
+    sudo -u "$ORIGINAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" zenity --notification --text="$@"
 }
 
 # 如果当前不是 root，则用 pkexec 重新执行并传递必要的环境变量
@@ -48,3 +48,5 @@ if zenity --question --text="Going to uninstall $1.\nPlease Confirm" --no-wrap; 
 
 
 fi
+
+notify-send "Uninstall Competed"
