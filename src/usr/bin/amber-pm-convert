@@ -653,7 +653,7 @@ log.info "搜索并清理 .dpkg-new 文件..."
 # 在 core 目录下查找并删除所有以 .dpkg-new 结尾的文件
 # 重命名 .dpkg-new 文件（去掉后缀）
 log.info "处理 .dpkg-new 文件，去掉后缀..."
-find "$CRAFT_DIR/core" -name "*.dpkg-new" -type f 2>/dev/null | while read -r file; do
+find "$CRAFT_DIR/core" -name "*.dpkg-new"  2>/dev/null | while read -r file; do
     newfile="${file%.dpkg-new}"
     log.info "重命名: $file -> $newfile"
     sudo mv -f "$file" "$newfile"
