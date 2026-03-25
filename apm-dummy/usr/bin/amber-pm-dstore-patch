@@ -1,9 +1,5 @@
 #!/bin/bash
 
-
-
-
-
 enumAppInfoList() {
     appInfoList=()
     apps="/var/lib/apm"
@@ -13,6 +9,7 @@ enumAppInfoList() {
     done
     echo "${appInfoList[@]}"
 }
+
 linkDir() {
     ensureTargetDir() {
         targetFile=$1
@@ -26,16 +23,13 @@ linkDir() {
     targetDir=$(dirname "$target")
     find "$source" -type f | while read sourceFile; do
         targetFile="$targetDir/${sourceFile#$sourceDir/}"
-
-
         ensureTargetDir "$targetFile"
-	sourceFile=$(realpath --relative-to="$(dirname $targetFile)" "$sourceFile" )
-	if [  ! -e "${targetFile}" ];then
-        ln -sv "$sourceFile" "$targetFile"
+        sourceFile=$(realpath --relative-to="$(dirname $targetFile)" "$sourceFile" )
+        if [  ! -e "${targetFile}" ];then
+            ln -sv "$sourceFile" "$targetFile"
         fi
     done
 }
-
 
 linkApp() {
     appID=$1
@@ -53,6 +47,21 @@ linkApp() {
         if [ ! -d "$folder" ]; then
             continue
         fi
+
+        # 对于 applications 目录，先为所有 .desktop 文件添加必要的字段
+        if [ "$folder" = "$appEntriesDir/applications" ]; then
+            find "$folder" -name "*.desktop" -type f | while read desktop; do
+                # 添加 X-APM-APPID
+                if ! grep -q "^X-APM-APPID=" "$desktop"; then
+                    echo "X-APM-APPID=$appID" >> "$desktop"
+                fi
+                # 添加 X-Deepin-PreUninstall
+                if ! grep -q "^X-Deepin-PreUninstall=" "$desktop"; then
+                    echo "X-Deepin-PreUninstall=amber-pm-app-uninstaller $appID" >> "$desktop"
+                fi
+            done
+        fi
+
         if [ "$folder" = "$appEntriesDir/polkit" ]; then
             linkDir "$folder" "/usr/share/polkit-1"
         elif [ "$folder" = "$appEntriesDir/fonts/conf" ]; then
@@ -64,32 +73,29 @@ linkApp() {
 }
 
 function exec_uos_package_link(){
-
-for app in $(enumAppInfoList); do
-    linkApp "$app" &
-
-done
-wait
+    for app in $(enumAppInfoList); do
+        linkApp "$app" &
+    done
+    wait
 }
 
 function exec_v23_icon_link(){
-# Fix v23 broken icon
-if [ ! -d "/usr/share/icons/hicolor/scalable/apps" ];then
-mkdir -p /usr/share/icons/hicolor/scalable/apps
-fi
+    # Fix v23 broken icon
+    if [ ! -d "/usr/share/icons/hicolor/scalable/apps" ];then
+        mkdir -p /usr/share/icons/hicolor/scalable/apps
+    fi
 
-for icon_root_icon_path in $(ls /usr/share/icons/*.png /usr/share/icons/*.svg 2>/dev/null)
-do
-target_icon_path=/usr/share/icons/hicolor/scalable/apps/$(basename ${icon_root_icon_path})
-if [  ! -e ${target_icon_path} ];then
-ln -sv $(realpath --relative-to=/usr/share/icons/hicolor/scalable/apps ${icon_root_icon_path}) /usr/share/icons/hicolor/scalable/apps
-fi
-done
+    for icon_root_icon_path in $(ls /usr/share/icons/*.png /usr/share/icons/*.svg 2>/dev/null)
+    do
+        target_icon_path=/usr/share/icons/hicolor/scalable/apps/$(basename ${icon_root_icon_path})
+        if [  ! -e ${target_icon_path} ];then
+            ln -sv $(realpath --relative-to=/usr/share/icons/hicolor/scalable/apps ${icon_root_icon_path}) /usr/share/icons/hicolor/scalable/apps
+        fi
+    done
 }
 
 function exec_link_clean(){
-# remove broken links in /usr/share
-
+    # remove broken links in /usr/share
     find /usr/share/applications -xtype l -exec echo '{} is invalid now and going to be cleaned' \; -exec unlink  {} \; 2>/dev/null &
     find /usr/share/icons -xtype l -exec echo '{} is invalid now and going to be cleaned' \; -exec unlink  {} \; 2>/dev/null &
     find /usr/share/mime/packages -xtype l -exec echo '{} is invalid now and going to be cleaned' \; -exec unlink  {} \; 2>/dev/null &
@@ -98,77 +104,74 @@ function exec_link_clean(){
     find /usr/share/fcitx -xtype l -exec echo '{} is invalid now and going to be cleaned' \; -exec unlink  {} \; 2>/dev/null &
     find /usr/share/help -xtype l -exec echo '{} is invalid now and going to be cleaned' \; -exec unlink  {} \; 2>/dev/null &
     find /usr/share/locale -xtype l -exec echo '{} is invalid now and going to be cleaned' \; -exec unlink  {} \; 2>/dev/null &
-#    find /usr/lib/$(gcc -dumpmachine)/fcitx -xtype l -exec echo '{} is invalid now and going to be cleaned' \; -exec unlink  {} \; 2>/dev/null &
     find /usr/lib/mozilla/plugins -xtype l -exec echo '{} is invalid now and going to be cleaned' \; -exec unlink  {} \; 2>/dev/null &
     find /usr/share/polkit-1/actions -xtype l -exec echo '{} is invalid now and going to be cleaned' \; -exec unlink  {} \; 2>/dev/null &
     find /usr/share/fonts -xtype l -exec echo '{} is invalid now and going to be cleaned' \; -exec unlink  {} \; 2>/dev/null &
     find /etc/fonts/conf.d -xtype l -exec echo '{} is invalid now and going to be cleaned' \; -exec unlink  {} \; 2>/dev/null &
-
-
 }
+
 function exec_uos_package_update(){
     update-icon-caches /usr/share/icons/* > /dev/null 2>&1 &
     update-desktop-database -q > /dev/null 2>&1 &
     update-mime-database -V /usr/share/mime > /dev/null 2>&1 &
     glib-compile-schemas /usr/share/glib-2.0/schemas/ > /dev/null 2>&1 &
-
 }
 
 function exec_debian_compatibile_links(){
-# 源目录和目标目录定义
-local SOURCE_DIR="/var/lib/apm"
-local TARGET_DIR="/var/lib/apm/apm/files/ace-env/var/lib/apm"
+    # 源目录和目标目录定义
+    local SOURCE_DIR="/var/lib/apm"
+    local TARGET_DIR="/var/lib/apm/apm/files/ace-env/var/lib/apm"
 
-# 检查目标目录是否存在
-if [[ ! -d "$TARGET_DIR" ]]; then
-    mkdir -p $TARGET_DIR
-fi
-
-# 第一部分：为缺失的目录创建软链接
-echo "检查并创建缺失的软链接..."
-for dir in "$SOURCE_DIR"/*/; do
-    # 获取目录名（去掉路径和尾部斜杠）
-    dirname=$(basename "$dir")
-    
-    # 跳过 apm 目录
-    if [[ "$dirname" == "apm" ]]; then
-        continue
+    # 检查目标目录是否存在
+    if [[ ! -d "$TARGET_DIR" ]]; then
+        mkdir -p $TARGET_DIR
     fi
-    
-    # 检查目标目录中是否已存在对应的软链接或目录
-    target_link="$TARGET_DIR/$dirname"
-    if [[ ! -e "$target_link" ]]; then
-        echo "创建软链接: $target_link -> $dir"
-        ln -sv "$dir" "$target_link"
-    fi
-done
 
-# 第二部分：清理无效的软链接
-echo "清理无效的软链接..."
-for link in "$TARGET_DIR"/*; do
-    # 检查是否为软链接
-    if [[ -L "$link" ]]; then
-        # 检查软链接是否有效（指向的目标是否存在）
-        if [[ ! -e "$link" ]]; then
-            echo "删除无效软链接: $link"
-            rm "$link"
+    # 第一部分：为缺失的目录创建软链接
+    echo "检查并创建缺失的软链接..."
+    for dir in "$SOURCE_DIR"/*/; do
+        # 获取目录名（去掉路径和尾部斜杠）
+        dirname=$(basename "$dir")
+        
+        # 跳过 apm 目录
+        if [[ "$dirname" == "apm" ]]; then
+            continue
         fi
-    fi
-done
+        
+        # 检查目标目录中是否已存在对应的软链接或目录
+        target_link="$TARGET_DIR/$dirname"
+        if [[ ! -e "$target_link" ]]; then
+            echo "创建软链接: $target_link -> $dir"
+            ln -sv "$dir" "$target_link"
+        fi
+    done
+
+    # 第二部分：清理无效的软链接
+    echo "清理无效的软链接..."
+    for link in "$TARGET_DIR"/*; do
+        # 检查是否为软链接
+        if [[ -L "$link" ]]; then
+            # 检查软链接是否有效（指向的目标是否存在）
+            if [[ ! -e "$link" ]]; then
+                echo "删除无效软链接: $link"
+                rm "$link"
+            fi
+        fi
+    done
 }
+
 #########################################################################################
 echo "----------------Running APM Dstore Patch----------------"
 
-# execute linkApp function for each app and print output
+# 执行链接操作（同时完成 .desktop 字段添加）
 exec_uos_package_link
 
-
-#exec_v23_icon_link
+# exec_v23_icon_link
 exec_link_clean
 wait
 exec_uos_package_update
 if [[ "${IS_APM_ENV}" = "" ]];then
-exec_debian_compatibile_links
+    exec_debian_compatibile_links
 fi
 
 echo "----------------Finished----------------"
