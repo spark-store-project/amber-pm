@@ -357,6 +357,7 @@ case "$1" in
     amber-pm-debug amber-pm-dstore-patch
     apm-nvidia-toggle
     amber-pm-gxde-desktop-fix
+    update-mime-database /var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir/mime > /dev/null 2>&1 &
     ;;
     download|search|policy|list|update|clean|show|depends|rdepends|changelog|moo)
     command=$1
