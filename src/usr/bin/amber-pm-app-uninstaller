@@ -40,7 +40,7 @@ fi
 
 
 # 用户确认
-if zenity --question --text="Going to uninstall $1.\nPlease Confirm" --no-wrap; then
+if zenity --question --text="即将卸载 $1\n请确认" --no-wrap; then
     # 启动卸载命令（这里假设 apm 是系统命令，请根据实际情况调整）
     # 注意：apm 可能不存在，可替换为 apt、dnf 等
     apm autoremove "$1" -y
@@ -49,4 +49,4 @@ if zenity --question --text="Going to uninstall $1.\nPlease Confirm" --no-wrap; 
 
 fi
 
-notify-send "Uninstall Competed"
+notify-send "卸载完成"
