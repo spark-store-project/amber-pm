@@ -1,0 +1,50 @@
+#!/bin/bash
+
+# ===== Log =====
+log.warn() { echo -e "[\e[33mWARN\e[0m]:  \e[1m$*\e[0m"; }
+log.error()  { echo -e "[\e[31mERROR\e[0m]: \e[1m$*\e[0m"; }
+log.info() { echo -e "[\e[96mINFO\e[0m]:  \e[1m$*\e[0m"; }
+log.debug()  { echo -e "[\e[32mDEBUG\e[0m]: \e[1m$*\e[0m"; }
+
+# 获取原始用户（调用 pkexec 或 sudo 的用户）
+ORIGINAL_USER="${SUDO_USER:-$USER}"
+ORIGINAL_UID=$(id -u "$ORIGINAL_USER")
+ORIGINAL_DISPLAY="${DISPLAY:-:0}"
+ORIGINAL_XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
+
+# 以原始用户身份运行图形界面命令
+function run_as_user() {
+    sudo -u "$ORIGINAL_USER" DISPLAY="$ORIGINAL_DISPLAY" XAUTHORITY="$ORIGINAL_XAUTHORITY" "$@"
+}
+
+function zenity() {
+    if [[ -e /usr/bin/garma ]]; then
+        run_as_user garma "$@"
+    else
+        run_as_user "$(command -v zenity)" "$@"
+    fi
+}
+
+function notify-send() {
+    local uid="$ORIGINAL_UID"
+    sudo -u "$ORIGINAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" notify-send "$@"
+}
+
+# 如果当前不是 root，则用 pkexec 重新执行并传递必要的环境变量
+if [ "$UID" != "0" ]; then
+    # 保存当前环境变量，通过 env 传递给 pkexec
+    exec pkexec "$0" "$@"
+    exit $?
+fi
+
+
+
+# 用户确认
+if zenity --question --text="Going to uninstall $1.\nPlease Confirm" --no-wrap; then
+    # 启动卸载命令（这里假设 apm 是系统命令，请根据实际情况调整）
+    # 注意：apm 可能不存在，可替换为 apt、dnf 等
+    apm autoremove "$1" -y
+    ret=$?
+
+
+fi
