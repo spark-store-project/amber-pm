@@ -15,7 +15,7 @@ systemctl restart apparmor.service || true
         fi
 		# Send statistics data
 		/var/lib/apm/apm/files/feedback.sh &
-        ln -sv  ../ /host
+        ln -sv / /host
 		amber-pm-dstore-patch
 
 ;;
