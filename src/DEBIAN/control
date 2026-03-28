@@ -3,7 +3,7 @@ Source: amber-ce
 Version: @VERSION@
 Architecture: amd64
 Maintainer: shenmo <shenmo@spark-app.store>
-Installed-Size: 49000
+Installed-Size: 49388
 Depends: zenity | garma,bubblewrap, flatpak,  policykit-1 | pkexec | polkit-1 | polkit, systemd, procps,coreutils,fuse-overlayfs,xz-utils | xz,libnotify-bin,curl,xdg-user-dirs,bash
 Recommends: dpkg, fakeroot, busybox
 Section: misc

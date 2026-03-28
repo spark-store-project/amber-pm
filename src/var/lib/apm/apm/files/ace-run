@@ -109,8 +109,8 @@ ENV_VARS=(
     "PATH /amber-ce-tools/bin-override:\$PATH"
     "IS_ACE_ENV 1"
     "GTK_USE_PORTAL 1"
-    "XDG_DATA_DIRS /amber-ce-tools/additional-data-dir-in-container:/host/usr/local/share:/host/usr/share:\$XDG_DATA_DIRS"
-    "XCURSOR_PATH /host/usr/share/icons:/host/usr/share/cursors:/usr/share/icons:/usr/share/cursors:\$XCURSOR_PATH"
+    "XDG_DATA_DIRS /amber-ce-tools/additional-data-dir-in-container:\$XDG_DATA_DIRS:/host/usr/local/share:/host/usr/share"
+#    "XCURSOR_PATH /host/usr/share/icons:/host/usr/share/cursors:/usr/share/icons:/usr/share/cursors:\$XCURSOR_PATH"
 )
 
 # 基础绑定目录（始终绑定）
@@ -127,6 +127,7 @@ BASE_BIND_DIRS=(
     "--dev-bind-try /run/user/\$uid/pulse /run/user/\$uid/pulse"
     "--dev-bind / /host"
     "--dev-bind-try /etc/resolv.conf /etc/resolv.conf"
+    "--dev-bind-try /usr/share/icons /usr/share/icons"
     "--dev-bind-try /home /home"
     "--dev-bind-try $HOME/.apm/${APM_PKG_NAME}/.deepinwine $HOME/.deepinwine"
 )
