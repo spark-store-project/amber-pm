@@ -110,6 +110,7 @@ ENV_VARS=(
     "IS_ACE_ENV 1"
     "GTK_USE_PORTAL 1"
     "XDG_DATA_DIRS /amber-ce-tools/additional-data-dir-in-container:/host/usr/local/share:/host/usr/share:\$XDG_DATA_DIRS"
+    "XCURSOR_PATH /host/usr/share/icons:/host/usr/share/cursors:/usr/share/icons:/usr/share/cursors:\$XCURSOR_PATH"
 )
 
 # 基础绑定目录（始终绑定）
