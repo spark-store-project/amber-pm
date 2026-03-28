@@ -1,5 +1,5 @@
 #!/bin/bash
-
+### 这个工具是用来启动apm内置ACE环境的，不是用来打开应用的
 bash(){
 /usr/bin/bash --rcfile <(cat ~/.bashrc; echo "PS1=\"\[\e[37;40m\][\[\e[32;40m\]\u\[\e[37;40m\]@Amber-PM \[\e[36;40m\]\w\[\e[0m\]]\\\$ \"") $@
 }
@@ -113,9 +113,6 @@ BIND_DIRS=(
     "--dev-bind /run /run"
     "--dev-bind-try /run/user/\$uid/pulse /run/user/\$uid/pulse"
     "--dev-bind / /host"
-    "--ro-bind-try /usr/share/themes /usr/local/share/themes"
-    "--ro-bind-try /usr/share/icons /usr/local/share/icons"
-    "--ro-bind-try /usr/share/fonts /usr/local/share/fonts"
     "--dev-bind-try /etc/resolv.conf /etc/resolv.conf"
     "--dev-bind-try /home /home"
 )
