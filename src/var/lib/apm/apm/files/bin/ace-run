@@ -117,7 +117,7 @@ BIND_DIRS=(
     "--dev-bind-try /home /home"
 )
 EXTRA_ARGS=(
-    "--cap-add CAP_SYS_ADMIN"
+#    "--cap-add CAP_SYS_ADMIN"
 )
 
 EXTRA_SCRIPTS=(

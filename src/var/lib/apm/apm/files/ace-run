@@ -147,12 +147,13 @@ NON_SANDBOX_BIND_DIRS=(
 )
 
 # 根据 APM_USE_BWRAP 决定是否添加 CAP_SYS_ADMIN
+# 为修复Steam问题，强制都不加
 EXTRA_ARGS=()
-if [ "${APM_USE_BWRAP:-0}" != "1" ]; then
-    EXTRA_ARGS=(
-        "--cap-add CAP_SYS_ADMIN"
-    )
-fi
+#if [ "${APM_USE_BWRAP:-0}" != "1" ]; then
+#    EXTRA_ARGS=(
+#        "--cap-add CAP_SYS_ADMIN"
+#    )
+#fi
 
 EXTRA_SCRIPTS=(
 #    cursor_theme_dir_integration

@@ -104,9 +104,9 @@ BIND_DIRS=(
     "--dev-bind-try /home /home"
 )
 EXTRA_ARGS=(
-    "--hostname Amber-PM"
-    "--unshare-uts"
-    "--cap-add CAP_SYS_ADMIN"
+#    "--hostname Amber-PM"
+#    "--unshare-uts"
+#    "--cap-add CAP_SYS_ADMIN"
 )
 
 EXTRA_SCRIPTS=(
