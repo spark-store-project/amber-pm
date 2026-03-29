@@ -37,6 +37,7 @@ _apm()
     # see if the user selected a command already
     local COMMANDS=(
         "ssaudit"
+        "ssinstall"
         "launch"
         "list"
         "search"
@@ -297,6 +298,11 @@ get_arg_position() {
                 ;;
             ssaudit)
                 # ssaudit 命令总是匹配文件
+                _filedir
+                return 0
+                ;;
+            ssinstall)
+                # ssinstall 命令总是匹配文件
                 _filedir
                 return 0
                 ;;
