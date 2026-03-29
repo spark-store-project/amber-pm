@@ -1,0 +1,191 @@
+#compdef apm
+
+local context state line
+local -a commands options
+
+# 定义命令列表
+commands=(  
+  'ssaudit:使用 ssaudit 进行本地软件安装'
+  'ssinstall:使用 ssinstall 进行本地软件安装'
+  'launch:启动软件包（通过应用启动器）'
+  'list:查看可用软件包信息'
+  'search:搜索软件包'
+  'show:展示包信息'
+  'showsrc:展示源码包信息'
+  'install:安装软件包'
+  'remove:卸载软件包'
+  'purge:彻底卸载软件包'
+  'autoremove:自动移除不需要的包'
+  'autopurge:自动彻底移除不需要的包'
+  'update:更新软件包信息'
+  'upgrade:升级软件包'
+  'full-upgrade:升级全部软件包'
+  'dist-upgrade:分发升级'
+  'run:运行指定软件包的可执行文件'
+  'sandbox-run:运行指定软件包的可执行文件（主目录沙箱化）'
+  'bwrap-run:运行指定软件包的可执行文件（使用 bwrap）'
+  'help:显示帮助信息'
+  'source:获取源码包'
+  'build-dep:安装构建依赖'
+  'clean:清除缓存软件包'
+  'autoclean:自动清除缓存软件包'
+  'download:下载包'
+  'changelog:查看包的变更日志'
+  'amber:彩蛋功能'
+  'xmp360:彩蛋功能'
+  'bronya:彩蛋功能'
+  'debug:显示调试系统信息并进入调试环境'
+  'depends:查看包依赖'
+  'rdepends:查看反向依赖'
+  'policy:查看包策略'
+)
+
+# 定义通用选项
+options=(  
+  '-h[显示帮助信息]'
+  '--help[显示帮助信息]'
+  '--help-all[显示完整帮助信息]'
+  '-v[展示APM版本号]'
+  '--version[展示APM版本号]'
+)
+
+# 定义命令特定选项
+local -A command_options
+command_options=(  
+  'install' '-d[仅下载不安装] --download-only[仅下载不安装] -y[自动回答是] --assume-yes[自动回答是] --assume-no[自动回答否] -u[显示已升级的包] --show-upgraded[显示已升级的包] -m[忽略缺失的包] --ignore-missing[忽略缺失的包] -t[指定目标发行版] --target-release[指定目标发行版] --download[下载] --fix-missing[修复缺失的包] --ignore-hold[忽略被锁定的包] --upgrade[升级] --only-upgrade[仅升级] --allow-change-held-packages[允许更改被锁定的包] --allow-remove-essential[允许移除 essential 包] --allow-downgrades[允许降级] --print-uris[打印 URI] --trivial-only[仅处理简单的升级] --remove[移除] --arch-only[仅处理架构相关的包] --allow-unauthenticated[允许未认证的包] --allow-insecure-repositories[允许不安全的仓库] --install-recommends[安装推荐的包] --install-suggests[安装建议的包] --no-install-recommends[不安装推荐的包] --no-install-suggests[不安装建议的包] --fix-policy[修复策略] --show-progress[显示进度] --fix-broken[修复损坏的包] --purge[彻底移除] --verbose-versions[显示详细版本信息] --auto-remove[自动移除不需要的包] -s[模拟运行] --simulate[模拟运行] --dry-run[模拟运行] --force-yes[强制回答是] --reinstall[重新安装] --solver[指定解算器]'
+  'remove' '-d[仅下载不安装] --download-only[仅下载不安装] -y[自动回答是] --assume-yes[自动回答是] --assume-no[自动回答否] -u[显示已升级的包] --show-upgraded[显示已升级的包] -m[忽略缺失的包] --ignore-missing[忽略缺失的包] -t[指定目标发行版] --target-release[指定目标发行版] --download[下载] --fix-missing[修复缺失的包] --ignore-hold[忽略被锁定的包] --upgrade[升级] --only-upgrade[仅升级] --allow-change-held-packages[允许更改被锁定的包] --allow-remove-essential[允许移除 essential 包] --allow-downgrades[允许降级] --print-uris[打印 URI] --trivial-only[仅处理简单的升级] --remove[移除] --arch-only[仅处理架构相关的包] --allow-unauthenticated[允许未认证的包] --allow-insecure-repositories[允许不安全的仓库] --install-recommends[安装推荐的包] --install-suggests[安装建议的包] --no-install-recommends[不安装推荐的包] --no-install-suggests[不安装建议的包] --fix-policy[修复策略] --show-progress[显示进度] --fix-broken[修复损坏的包] --purge[彻底移除] --verbose-versions[显示详细版本信息] --auto-remove[自动移除不需要的包] -s[模拟运行] --simulate[模拟运行] --dry-run[模拟运行] --force-yes[强制回答是] --reinstall[重新安装] --solver[指定解算器]'
+  'update' '--list-cleanup[清理列表] --print-uris[打印 URI] --allow-insecure-repositories[允许不安全的仓库]'
+  'list' '--installed[显示已安装的包] --upgradable[显示可升级的包] --manual-installed[显示手动安装的包] -v[详细输出] --verbose[详细输出] -a[显示所有版本] --all-versions[显示所有版本] -t[指定目标发行版] --target-release[指定目标发行版]'
+  'show' '-a[显示所有版本] --all-versions[显示所有版本]'
+  'depends' '-i[重要依赖] --important[重要依赖] --installed[已安装的依赖] --pre-depends[预依赖] --depends[依赖] --recommends[推荐依赖] --suggests[建议依赖] --replaces[替换] --breaks[破坏] --conflicts[冲突] --enhances[增强] --recurse[递归] --implicit[隐式依赖]'
+  'rdepends' '-i[重要依赖] --important[重要依赖] --installed[已安装的依赖] --pre-depends[预依赖] --depends[依赖] --recommends[推荐依赖] --suggests[建议依赖] --replaces[替换] --breaks[破坏] --conflicts[冲突] --enhances[增强] --recurse[递归] --implicit[隐式依赖]'
+  'search' '-n[仅按名称搜索] --names-only[仅按名称搜索] -f[完整搜索] --full[完整搜索]'
+  'showsrc' '--only-source[仅源码]'
+  'source' '-d[仅下载不安装] --download-only[仅下载不安装] -y[自动回答是] --assume-yes[自动回答是] --assume-no[自动回答否] -u[显示已升级的包] --show-upgraded[显示已升级的包] -m[忽略缺失的包] --ignore-missing[忽略缺失的包] -t[指定目标发行版] --target-release[指定目标发行版] --download[下载] --fix-missing[修复缺失的包] --ignore-hold[忽略被锁定的包] --upgrade[升级] --only-upgrade[仅升级] --allow-change-held-packages[允许更改被锁定的包] --allow-remove-essential[允许移除 essential 包] --allow-downgrades[允许降级] --print-uris[打印 URI] --trivial-only[仅处理简单的升级] --remove[移除] --arch-only[仅处理架构相关的包] --allow-unauthenticated[允许未认证的包] --allow-insecure-repositories[允许不安全的仓库] --install-recommends[安装推荐的包] --install-suggests[安装建议的包] --no-install-recommends[不安装推荐的包] --no-install-suggests[不安装建议的包] --fix-policy[修复策略] -s[模拟运行] --simulate[模拟运行] --dry-run[模拟运行] -b[编译] --compile[编译] --build[编译] -P[构建配置文件] --build-profiles[构建配置文件] --diff-only[仅差异] --debian-only[仅 Debian] --tar-only[仅 tar] --dsc-only[仅 dsc]'
+  'build-dep' '-d[仅下载不安装] --download-only[仅下载不安装] -y[自动回答是] --assume-yes[自动回答是] --assume-no[自动回答否] -u[显示已升级的包] --show-upgraded[显示已升级的包] -m[忽略缺失的包] --ignore-missing[忽略缺失的包] -t[指定目标发行版] --target-release[指定目标发行版] --download[下载] --fix-missing[修复缺失的包] --ignore-hold[忽略被锁定的包] --upgrade[升级] --only-upgrade[仅升级] --allow-change-held-packages[允许更改被锁定的包] --allow-remove-essential[允许移除 essential 包] --allow-downgrades[允许降级] --print-uris[打印 URI] --trivial-only[仅处理简单的升级] --remove[移除] --arch-only[仅处理架构相关的包] --allow-unauthenticated[允许未认证的包] --allow-insecure-repositories[允许不安全的仓库] --install-recommends[安装推荐的包] --install-suggests[安装建议的包] --no-install-recommends[不安装推荐的包] --no-install-suggests[不安装建议的包] --fix-policy[修复策略] -a[主机架构] --host-architecture[主机架构] -s[模拟运行] --simulate[模拟运行] --dry-run[模拟运行] -P[构建配置文件] --build-profiles[构建配置文件] --purge[彻底移除] --solver[指定解算器]'
+  'clean' '-s[模拟运行] --simulate[模拟运行] --dry-run[模拟运行]'
+  'autoclean' '-s[模拟运行] --simulate[模拟运行] --dry-run[模拟运行]'
+)
+
+# 定义目录路径
+local primary_dir="/var/lib/apm/apm/files/ace-env/var/lib/apm/"
+local fallback_dir="/var/lib/apm/"
+
+# 查找不包含特定子目录的目录
+function find_directories_without_ace_env() {
+  local base_dir="$1"
+  local result=()
+  
+  # 检查基础目录是否存在
+  if [[ ! -d "$base_dir" ]]; then
+    return 1
+  fi
+  
+  # 查找所有直接子目录，排除包含ace-env子目录的目录
+  for dir in "$base_dir"/*; do
+    if [[ -d "$dir" ]] && [[ ! -d "$dir/files/ace-env" ]]; then
+      result+=("$(basename "$dir")")
+    fi
+  done
+  
+  # 输出结果
+  if [[ ${#result[@]} -gt 0 ]]; then
+    print -l "${result[@]}"
+    return 0
+  fi
+  return 1
+}
+
+function apm_run_compgen() {
+  local result
+  result=$(find_directories_without_ace_env "$primary_dir")
+
+  if [[ -n "$result" ]]; then
+    echo "$result"
+  else
+    result=$(find_directories_without_ace_env "$fallback_dir")
+    if [[ -n "$result" ]]; then
+      echo "$result"
+    else
+      echo ""
+    fi
+  fi
+}
+
+# 主完成函数
+_arguments -C \
+  "$options[@]" \
+  '*:: :->command'
+
+case $state in
+  command)
+    if (( CURRENT == 1 )); then
+      _describe 'command' commands
+    else
+      local cmd="${words[1]}"
+      local arg_pos=0
+      local found_cmd=0
+      
+      for (( i=1; i < CURRENT; i++ )); do
+        if [[ $found_cmd -eq 0 ]]; then
+          if [[ "${words[i]}" == "$cmd" ]]; then
+            found_cmd=1
+          fi
+        else
+          # 跳过选项参数（以-开头）
+          if [[ "${words[i]}" != -* ]]; then
+            ((arg_pos++))
+          fi
+        fi
+      done
+      
+      # 处理命令特定的选项
+      if [[ -n "${command_options[$cmd]}" ]]; then
+        _arguments "${(s: :)command_options[$cmd]}"
+      fi
+      
+      # 处理命令特定的参数
+      case $cmd in
+        remove|purge|autoremove|autopurge)
+          if [[ $arg_pos -eq 1 ]]; then
+            _files -W "$primary_dir" -/n
+          fi
+          ;;
+        show|list|download|changelog|depends|rdepends|policy)
+          if [[ $arg_pos -eq 1 ]]; then
+            local packages
+            packages=($(amber-pm-debug apt-cache --no-generate pkgnames "$PREFIX" -o Dir::Cache="/var/lib/aptss/" 2> /dev/null))
+            _describe 'package' packages
+          fi
+          ;;
+        install)
+          if [[ $arg_pos -eq 1 ]]; then
+            local packages
+            packages=($(amber-pm-debug apt-cache --no-generate pkgnames "$PREFIX" -o Dir::Cache="/var/lib/aptss/" 2> /dev/null))
+            _describe 'package' packages
+            _files -g "*.deb"
+          fi
+          ;;
+        source|build-dep|showsrc)
+          if [[ $arg_pos -eq 1 ]]; then
+            local packages
+            packages=($(amber-pm-debug apt-cache --no-generate pkgnames "$PREFIX" -o Dir::Cache="/var/lib/aptss/" 2> /dev/null))
+            _describe 'package' packages
+          fi
+          ;;
+        run|sandbox-run|bwrap-run|launch)
+          if [[ $arg_pos -eq 1 ]]; then
+            local packages
+            packages=($(apm_run_compgen))
+            _describe 'package' packages
+          elif [[ $arg_pos -ge 2 ]]; then
+            _files
+          fi
+          ;;
+        ssaudit|ssinstall)
+          _files
+          ;;
+      esac
+    fi
+    ;;
+esac
