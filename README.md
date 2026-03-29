@@ -37,31 +37,27 @@ Usage:
 Commands:
   install           安装软件包
   remove            卸载软件包
-  run <package>     运行指定软件包的可执行文件
-  sandbox-run <package> 运行指定软件包的可执行文件（主目录沙箱化）
-
+  launch <package> [args...]  启动软件包（通过应用启动器）
+  run <package> [EXEC_PATH] [args...]  运行指定软件包的可执行文件（可指定容器内路径）
   update            更新软件包信息
-  hold              锁定软件包版本
-  unhold            解锁软件包版本
-  full-upgrade      升级全部软件包
   list              查看可用软件包信息
   search            搜索软件包
-
-  download          下载包
   show              展示包信息
   clean             清除缓存软件包
   autoremove        自动移除不需要的包
-  ssaudit <path>    使用 ssaudit 进行本地软件安装，详情见 spark-store
-  debug             显示调试系统信息并进入调试环境
 
   amber             彩蛋功能
   xmp360            彩蛋功能
   bronya            彩蛋功能
 
   -h, --help        显示此帮助信息
+  --help-all        显示完整帮助信息
   -v, --version     展示APM版本号
 
 ```
+
+### 完整命令列表
+使用 `apm --help-all` 查看完整的命令列表，包括高级命令如 `sandbox-run`、`bwrap-run`、`hold`、`unhold`、`full-upgrade`、`download`、`ssinstall`、`ssaudit`、`debug` 等。
 
 
 
