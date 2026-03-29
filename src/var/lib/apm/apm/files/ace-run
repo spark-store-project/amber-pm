@@ -127,7 +127,8 @@ BASE_BIND_DIRS=(
     "--dev-bind-try /run/user/\$uid/pulse /run/user/\$uid/pulse"
     "--dev-bind / /host"
     "--dev-bind-try /etc/resolv.conf /etc/resolv.conf"
-    "--dev-bind-try /usr/share/icons /usr/share/icons"
+    "--dev-bind-try /usr/share/icons /usr/local/share/icons"
+    "--dev-bind-try /usr/share/themes /usr/share/themes"
     "--dev-bind-try /home /home"
     "--dev-bind-try $HOME/.apm/${APM_PKG_NAME}/.deepinwine $HOME/.deepinwine"
 )
