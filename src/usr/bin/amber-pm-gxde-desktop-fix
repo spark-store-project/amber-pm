@@ -1,16 +1,14 @@
 #!/bin/bash
 
-if [[ ! -e "/usr/share/gxde-api" ]] && ! grep -q "Kylin" /etc/os-release; then
-    exit 0 # No needed
-fi
-
 # 确定目标目录
 if grep -q "Kylin" /etc/os-release; then
     TARGET_BASE="/usr/share"
+    APP_TARGET_DIR="$TARGET_BASE/applications"
     echo "检测到麒麟系统，使用目标目录: $TARGET_BASE"
 else
     TARGET_BASE="/usr/local/share"
-    echo "检测到GXDE环境，使用目标目录: $TARGET_BASE"
+    APP_TARGET_DIR="$TARGET_BASE/applications/apm"
+    echo "检测到非麒麟系统，使用目标目录: $APP_TARGET_DIR"
 fi
 
 function ensure_dir() {
@@ -52,12 +50,12 @@ process_directory() {
 }
 
 # 使用动态确定的目标目录
-ensure_dir "$TARGET_BASE/applications/"
+ensure_dir "$APP_TARGET_DIR/"
 ensure_dir "$TARGET_BASE/icons/"
 
 # 处理 applications 目录
 process_directory "/var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir/applications/" \
-                  "$TARGET_BASE/applications/" "Applications"
+                  "$APP_TARGET_DIR/" "Applications"
 
 # 处理 icons 目录
 process_directory "/var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir/icons/" \
@@ -65,3 +63,36 @@ process_directory "/var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir/icons/
 
 # 等待所有后台任务完成
 wait
+
+# 迁移老链接（仅非麒麟系统需要）
+if ! grep -q "Kylin" /etc/os-release; then
+    OLD_LINK_DIR="/usr/local/share/applications"
+    # 检查旧目录是否存在且不是apm子目录
+    if [ -d "$OLD_LINK_DIR" ] && [ "$OLD_LINK_DIR" != "$APP_TARGET_DIR" ]; then
+        echo "检查并迁移老链接..."
+        # 查找旧目录中指向APM数据目录的符号链接
+        find "$OLD_LINK_DIR" -maxdepth 1 -type l | while read -r link; do
+            target=$(readlink "$link")
+            # 如果链接指向APM的数据目录
+            if [[ "$target" == /var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir/applications/* ]]; then
+                filename=$(basename "$link")
+                # 如果新位置没有同名文件，则移动
+                if [ ! -e "$APP_TARGET_DIR/$filename" ]; then
+                    echo "迁移老链接: $filename"
+                    mv -v "$link" "$APP_TARGET_DIR/"
+                else
+                    echo "新位置已存在 $filename，删除老链接"
+                    rm -v "$link"
+                fi
+            fi
+        done
+    fi
+fi
+
+# 更新桌面数据库
+if command -v update-desktop-database >/dev/null 2>&1; then
+    echo "正在更新桌面数据库..."
+    update-desktop-database "$TARGET_BASE/applications/"
+else
+    echo "警告: update-desktop-database 命令未找到"
+fi
