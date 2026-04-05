@@ -1,9 +1,9 @@
 Package: apm
-Version: 1.1.3
+Version: 1.1.4
 Maintainer: shenmo <jifengshenmo@outlook.com>
 Priority: optional
 Section: utils
 Installed-Size: 36
-Description: A empty package to satisfy depends
+Description: A empty package to satisfy depends--Also,manage in-apm-runtime cloud configs
 Architecture: all
 Homepage: https://shenmo7192.gitee.io/
