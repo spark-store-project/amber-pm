@@ -70,13 +70,18 @@ amber-pm-convert --base amber-pm-bookworm-spark-wine /path/to/package.deb --pkgn
 - 安装或更新软件包后自动执行
 - 确保应用商店配置正确
 
-### 2.3 amber-pm-gxde-desktop-fix
+### 2.3 amber-pm-desktop-fix
 
-**功能**：修复 GXDE 桌面环境相关问题。
+**功能**：修复桌面环境相关问题，维护应用程序和图标链接。
 
 **使用场景**：
 - 安装或移除软件包后自动执行
 - 确保桌面环境正常运行
+- 自动迁移旧版链接到新目录结构
+
+**说明**：
+- 银河麒麟系统：链接到 `/usr/share/applications/`
+- 其他发行版：链接到 `/usr/local/share/applications/apm/`
 
 ## 3. 沙箱与安全工具
 

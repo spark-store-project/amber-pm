@@ -391,7 +391,7 @@ case "$1" in
     fi
     amber-pm-debug amber-pm-dstore-patch
     apm-nvidia-toggle
-    amber-pm-gxde-desktop-fix
+    amber-pm-desktop-fix
     update-mime-database /var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir/mime > /dev/null 2>&1 &
     ;;
     download|search|policy|list|update|clean|show|depends|rdepends|changelog|moo)
@@ -432,7 +432,7 @@ case "$1" in
         exit $exit_code
     fi
         amber-pm-debug amber-pm-dstore-patch
-        amber-pm-gxde-desktop-fix
+        amber-pm-desktop-fix
         ;;
    launch)
         shift
@@ -512,7 +512,7 @@ case "$1" in
         exit $exit_code
     fi
         amber-pm-debug amber-pm-dstore-patch
-        amber-pm-gxde-desktop-fix
+        amber-pm-desktop-fix
 
         ;;
     ssinstall)
@@ -526,7 +526,7 @@ case "$1" in
         exit $exit_code
     fi
         amber-pm-debug amber-pm-dstore-patch
-        amber-pm-gxde-desktop-fix
+        amber-pm-desktop-fix
 
         ;;
     -h|--help)
