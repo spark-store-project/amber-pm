@@ -67,23 +67,20 @@ fi
 
 # 检查源目录是否为空
 if [ -z "$(ls -A "$OVERRIDE_SOURCE" 2>/dev/null)" ]; then
-    log_warn "源目录为空: $OVERRIDE_SOURCE"
     exit 0
 fi
 
-log_info "开始覆盖操作..."
-log_info "源目录: $OVERRIDE_SOURCE"
+$VERBOSE && log_info "源目录: $OVERRIDE_SOURCE"
 
 # 检查 APM 基础目录是否存在
 if [ ! -d "$APM_BASE_DIR" ]; then
-    log_error "APM 基础目录不存在: $APM_BASE_DIR"
-    exit 1
+    exit 0
 fi
 
 # 计数器
 OVERRIDE_COUNT=0
-SKIPPED_COUNT=0
 ERROR_COUNT=0
+HAS_CHANGES=false
 
 # 遍历 /var/lib/apm/ 下的所有子目录
 for pkg_dir in "$APM_BASE_DIR"/*/; do
@@ -111,11 +108,30 @@ for pkg_dir in "$APM_BASE_DIR"/*/; do
         continue
     fi
 
-    log_info "处理包: $pkg_name -> $target_dir"
+    # 检查是否有文件需要更新（比较源文件和目标文件）
+    NEED_UPDATE=false
+    while IFS= read -r -d '' file; do
+        rel_path="${file#$OVERRIDE_SOURCE/}"
+        target_file="$target_dir/$rel_path"
+        # 如果目标文件不存在或源文件更新，则需要更新
+        if [ ! -e "$target_file" ] || [ "$file" -nt "$target_file" ]; then
+            NEED_UPDATE=true
+            break
+        fi
+    done < <(find "$OVERRIDE_SOURCE" -type f -print0 2>/dev/null)
+
+    # 如果没有需要更新的文件，跳过
+    if [ "$NEED_UPDATE" = false ]; then
+        $VERBOSE && log_debug "跳过 $pkg_name: 文件已是最新"
+        continue
+    fi
+
+    HAS_CHANGES=true
+    $VERBOSE && log_info "处理包: $pkg_name"
 
     # 使用 rsync 或 cp 进行覆盖
     if [ "$DRY_RUN" = true ]; then
-        log_info "[试运行] 将覆盖文件到: $target_dir"
+        $VERBOSE && log_info "[试运行] 将覆盖文件到: $target_dir"
         find "$OVERRIDE_SOURCE" -type f | while read -r file; do
             rel_path="${file#$OVERRIDE_SOURCE/}"
             target_file="$target_dir/$rel_path"
@@ -125,7 +141,7 @@ for pkg_dir in "$APM_BASE_DIR"/*/; do
     else
         # 使用 cp -r 进行递归复制，保留权限
         if cp -rL "$OVERRIDE_SOURCE"/* "$target_dir/" 2>/dev/null; then
-            log_info "成功覆盖到: $target_dir"
+            $VERBOSE && log_info "成功覆盖到: $target_dir"
             ((OVERRIDE_COUNT++))
         else
             log_error "覆盖失败: $target_dir"
@@ -134,15 +150,17 @@ for pkg_dir in "$APM_BASE_DIR"/*/; do
     fi
 done
 
-# 输出统计信息
-log_info "===================================="
-log_info "覆盖操作完成"
-log_info "成功处理: $OVERRIDE_COUNT 个包"
-if [ "$DRY_RUN" = true ]; then
-    log_info "[试运行模式] 未实际执行覆盖"
-fi
-if [ $ERROR_COUNT -gt 0 ]; then
-    log_error "失败: $ERROR_COUNT 个包"
+# 只有在有改动或 verbose 模式时才输出统计信息
+if [ "$HAS_CHANGES" = true ] || [ "$VERBOSE" = true ]; then
+    $VERBOSE && log_info "===================================="
+    $VERBOSE && log_info "覆盖操作完成"
+    log_info "成功处理: $OVERRIDE_COUNT 个包"
+    if [ "$DRY_RUN" = true ]; then
+        log_info "[试运行模式] 未实际执行覆盖"
+    fi
+    if [ $ERROR_COUNT -gt 0 ]; then
+        log_error "失败: $ERROR_COUNT 个包"
+    fi
 fi
 
 exit 0

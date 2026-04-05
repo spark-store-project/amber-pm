@@ -3,7 +3,7 @@ Version: 1.1.4
 Maintainer: shenmo <jifengshenmo@outlook.com>
 Priority: optional
 Section: utils
-Installed-Size: 68
+Installed-Size: 72
 Description: A empty package to satisfy depends--Also,manage in-apm-runtime cloud configs
 Architecture: all
 Homepage: https://shenmo7192.gitee.io/
