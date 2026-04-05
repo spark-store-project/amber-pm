@@ -8,6 +8,9 @@ case "$1" in
             amber-pm-base-overrider
 
 	;;
+	*)
+            amber-pm-base-overrider
+	;;
 esac
 
 
