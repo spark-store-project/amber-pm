@@ -1,5 +1,30 @@
 #!/bin/bash
 
+# 检测是否安装了 XFCE 或 DDE 桌面环境
+# 通过检查系统中是否存在相关的 desktop 文件或关键程序
+is_xfce_or_dde() {
+    # 检查 XFCE
+    if [ -f /usr/share/xsessions/xfce.desktop ] || \
+       [ -f /usr/local/share/xsessions/xfce.desktop ] || \
+       command -v xfce4-session >/dev/null 2>&1; then
+        return 0
+    fi
+    # 检查 DDE/Deepin
+    if [ -f /usr/share/xsessions/deepin.desktop ] || \
+       [ -f /usr/share/xsessions/dde.desktop ] || \
+       [ -f /usr/local/share/xsessions/deepin.desktop ] || \
+       [ -f /usr/local/share/xsessions/dde.desktop ] || \
+       command -v dde-session >/dev/null 2>&1 || \
+       command -v startdde >/dev/null 2>&1; then
+        # 特例：GXDE OS 虽然基于 DDE，但使用 /apm/ 子目录
+        if [ -d /usr/share/gxde-api ]; then
+            return 1
+        fi
+        return 0
+    fi
+    return 1
+}
+
 # 确定目标目录
 if grep -q "Kylin" /etc/os-release; then
     TARGET_BASE="/usr/share"
@@ -7,8 +32,14 @@ if grep -q "Kylin" /etc/os-release; then
     echo "检测到麒麟系统，使用目标目录: $TARGET_BASE"
 else
     TARGET_BASE="/usr/local/share"
-    APP_TARGET_DIR="$TARGET_BASE/applications"
-    echo "检测到非麒麟系统，使用目标目录: $APP_TARGET_DIR"
+    # 检测是否为 XFCE 或 DDE 桌面环境
+    if is_xfce_or_dde; then
+        APP_TARGET_DIR="$TARGET_BASE/applications"
+        echo "检测到 XFCE/DDE 桌面环境，使用目标目录: $APP_TARGET_DIR"
+    else
+        APP_TARGET_DIR="$TARGET_BASE/applications/apm"
+        echo "使用目标目录: $APP_TARGET_DIR"
+    fi
 fi
 
 function ensure_dir() {
@@ -66,12 +97,24 @@ wait
 
 # 迁移老链接（仅非麒麟系统需要）
 if ! grep -q "Kylin" /etc/os-release; then
-    OLD_LINK_DIR="/usr/local/share/applications/apm"
-    # 检查旧apm子目录是否存在
-    if [ -d "$OLD_LINK_DIR" ]; then
-        echo "检查并迁移apm子目录中的老链接..."
-        # 查找apm子目录中指向APM数据目录的符号链接
-        find "$OLD_LINK_DIR" -maxdepth 1 -type l | while read -r link; do
+    # 定义可能的链接位置
+    APM_SUBDIR="/usr/local/share/applications/apm"
+    APP_ROOT_DIR="/usr/local/share/applications"
+    
+    # 根据当前目标目录，确定源目录
+    if [ "$APP_TARGET_DIR" = "$APM_SUBDIR" ]; then
+        # 当前目标是 apm 子目录，需要检查根目录是否有链接需要迁移
+        SOURCE_DIR="$APP_ROOT_DIR"
+    else
+        # 当前目标是根目录，需要检查 apm 子目录是否有链接需要迁移
+        SOURCE_DIR="$APM_SUBDIR"
+    fi
+    
+    # 检查源目录是否存在且与目标目录不同
+    if [ -d "$SOURCE_DIR" ] && [ "$SOURCE_DIR" != "$APP_TARGET_DIR" ]; then
+        echo "检查并迁移老链接..."
+        # 查找源目录中指向APM数据目录的符号链接
+        find "$SOURCE_DIR" -maxdepth 1 -type l 2>/dev/null | while read -r link; do
             target=$(readlink "$link")
             # 如果链接指向APM的数据目录
             if [[ "$target" == /var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir/applications/* ]]; then
@@ -86,10 +129,10 @@ if ! grep -q "Kylin" /etc/os-release; then
                 fi
             fi
         done
-        # 如果apm子目录为空，则删除它
-        if [ -z "$(ls -A "$OLD_LINK_DIR")" ]; then
-            echo "删除空的apm子目录"
-            rmdir -v "$OLD_LINK_DIR"
+        
+        # 如果源目录是 apm 子目录且已空，尝试删除
+        if [ "$SOURCE_DIR" = "$APM_SUBDIR" ] && [ -d "$APM_SUBDIR" ]; then
+            rmdir "$APM_SUBDIR" 2>/dev/null || true
         fi
     fi
 fi
