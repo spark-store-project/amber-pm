@@ -7,7 +7,7 @@ if grep -q "Kylin" /etc/os-release; then
     echo "检测到麒麟系统，使用目标目录: $TARGET_BASE"
 else
     TARGET_BASE="/usr/local/share"
-    APP_TARGET_DIR="$TARGET_BASE/applications/apm"
+    APP_TARGET_DIR="$TARGET_BASE/applications"
     echo "检测到非麒麟系统，使用目标目录: $APP_TARGET_DIR"
 fi
 
@@ -66,11 +66,11 @@ wait
 
 # 迁移老链接（仅非麒麟系统需要）
 if ! grep -q "Kylin" /etc/os-release; then
-    OLD_LINK_DIR="/usr/local/share/applications"
-    # 检查旧目录是否存在且不是apm子目录
-    if [ -d "$OLD_LINK_DIR" ] && [ "$OLD_LINK_DIR" != "$APP_TARGET_DIR" ]; then
-        echo "检查并迁移老链接..."
-        # 查找旧目录中指向APM数据目录的符号链接
+    OLD_LINK_DIR="/usr/local/share/applications/apm"
+    # 检查旧apm子目录是否存在
+    if [ -d "$OLD_LINK_DIR" ]; then
+        echo "检查并迁移apm子目录中的老链接..."
+        # 查找apm子目录中指向APM数据目录的符号链接
         find "$OLD_LINK_DIR" -maxdepth 1 -type l | while read -r link; do
             target=$(readlink "$link")
             # 如果链接指向APM的数据目录
@@ -86,6 +86,11 @@ if ! grep -q "Kylin" /etc/os-release; then
                 fi
             fi
         done
+        # 如果apm子目录为空，则删除它
+        if [ -z "$(ls -A "$OLD_LINK_DIR")" ]; then
+            echo "删除空的apm子目录"
+            rmdir -v "$OLD_LINK_DIR"
+        fi
     fi
 fi
 
