@@ -140,6 +140,7 @@ ln -sfv ../../usr/share/applications/ .
 ln -sfv ../../usr/share/icons/ .
 ln -sfv ../../usr/share/templates/   .
 #ln -svf ../../usr/share/mime .
+ln -sfv ../../usr/share/pixmaps/   .
 rm -vf ./mime
 update-desktop-database /usr/share/applications || true
 update-mime-database /usr/share/mime || true
