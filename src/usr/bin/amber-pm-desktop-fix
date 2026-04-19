@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# 检测是否安装了 XFCE 或 DDE 桌面环境
+# 检测是否安装了 XFCE、DDE 或 GNOME 桌面环境
 # 通过检查系统中是否存在相关的 desktop 文件或关键程序
-is_xfce_or_dde() {
+is_xfce_or_dde_or_gnome() {
     # 检查 XFCE
     if [ -f /usr/share/xsessions/xfce.desktop ] || \
        [ -f /usr/local/share/xsessions/xfce.desktop ] || \
@@ -16,10 +16,17 @@ is_xfce_or_dde() {
        [ -f /usr/local/share/xsessions/dde.desktop ] || \
        command -v dde-session >/dev/null 2>&1 || \
        command -v startdde >/dev/null 2>&1; then
-        # 特例：GXDE OS 虽然基于 DDE，但使用 /apm/ 子目录
-        if [ -d /usr/share/gxde-api ]; then
-            return 1
-        fi
+        return 0
+    fi
+    # 检查 GNOME
+    if [ -f /usr/share/xsessions/gnome.desktop ] || \
+       [ -f /usr/share/xsessions/gnome-xorg.desktop ] || \
+       [ -f /usr/share/xsessions/gnome-wayland.desktop ] || \
+       [ -f /usr/local/share/xsessions/gnome.desktop ] || \
+       [ -f /usr/local/share/xsessions/gnome-xorg.desktop ] || \
+       [ -f /usr/local/share/xsessions/gnome-wayland.desktop ] || \
+       command -v gnome-session >/dev/null 2>&1 || \
+       command -v gnome-shell >/dev/null 2>&1; then
         return 0
     fi
     return 1
@@ -32,10 +39,10 @@ if grep -q "Kylin" /etc/os-release; then
     echo "检测到麒麟系统，使用目标目录: $TARGET_BASE"
 else
     TARGET_BASE="/usr/local/share"
-    # 检测是否为 XFCE 或 DDE 桌面环境
-    if is_xfce_or_dde; then
+    # 检测是否为 XFCE、DDE 或 GNOME 桌面环境
+    if is_xfce_or_dde_or_gnome; then
         APP_TARGET_DIR="$TARGET_BASE/applications"
-        echo "检测到 XFCE/DDE 桌面环境，使用目标目录: $APP_TARGET_DIR"
+        echo "检测到 XFCE/DDE/GNOME 桌面环境，使用目标目录: $APP_TARGET_DIR"
     else
         APP_TARGET_DIR="$TARGET_BASE/applications/apm"
         echo "使用目标目录: $APP_TARGET_DIR"
