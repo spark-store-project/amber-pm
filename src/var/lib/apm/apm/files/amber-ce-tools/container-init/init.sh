@@ -125,22 +125,5 @@ ln -sfv /amber-ce-tools/bin-override/host-spawn-$(uname -m) /amber-ce-tools/bin-
 
 exit 0
 
-## install host-integration
-pushd /amber-ce-tools/ace-host-integration
-
-dpkg-deb -Z xz -b . ../ace-host-integration.deb
-
-popd
-apt install --reinstall /amber-ce-tools/ace-host-integration.deb -y
 
 
-cd /amber-ce-tools/data-dir/
-mkdir -p usr/share/templates  
-ln -sfv ../../usr/share/applications/ .
-ln -sfv ../../usr/share/icons/ .
-ln -sfv ../../usr/share/templates/   .
-#ln -svf ../../usr/share/mime .
-ln -sfv ../../usr/share/pixmaps/   .
-rm -vf ./mime
-update-desktop-database /usr/share/applications || true
-update-mime-database /usr/share/mime || true
