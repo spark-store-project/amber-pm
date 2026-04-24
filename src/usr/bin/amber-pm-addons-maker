@@ -1,0 +1,401 @@
+#!/bin/bash
+
+# APM Addons 包创建工具 - 用于创建可在 base 上叠加的 addons 层
+log.warn()  { echo -e "[\e[33mWARN\e[0m]:  \e[1m$*\e[0m"; }
+log.error() { echo -e "[\e[31mERROR\e[0m]: \e[1m$*\e[0m"; }
+log.info()  { echo -e "[\e[96mINFO\e[0m]:  \e[1m$*\e[0m"; }
+log.debug() { echo -e "[\e[32mDEBUG\e[0m]: \e[1m$*\e[0m"; }
+
+SCRIPT_NAME=$(basename "$0")
+
+if ! command -v dpkg > /dev/null ; then
+    log.error "若想使用APM addons包创建工具，您需先安装dpkg"
+    exit 1
+fi
+
+# 显示用法信息
+usage() {
+    echo "用法: $SCRIPT_NAME --base <base-name> [--manual] [--pkgname <包名>] [--version <版本>] [deb文件路径]"
+    echo ""
+    echo "参数说明:"
+    echo "  --base       必填参数，指定基础环境名称（addons 将叠加在此 base 上）"
+    echo "  --manual     启用手动模式：融合挂载后打开交互 shell，退出后脚本继续"
+    echo "  --pkgname    可选参数，指定新包的包名（默认格式：<base>-addons）"
+    echo "  --version    可选参数，指定新包的版本号（默认：1.0.0-apm）"
+    echo "  deb文件路径  可选参数，要安装到 addons 环境中的 Deb 文件路径"
+    echo ""
+    echo "示例:"
+    echo "  $SCRIPT_NAME --base amber-pm-bookworm"
+    echo "  $SCRIPT_NAME --base amber-pm-bookworm --manual"
+    echo "  $SCRIPT_NAME --base amber-pm-trixie --pkgname amber-pm-trixie-nvidia-addons --version 1.0.0"
+    echo "  $SCRIPT_NAME --base amber-pm-bookworm /path/to/nvidia-driver.deb"
+    echo ""
+    echo "说明: addons 包命名格式建议为 <base>-<描述>-addons"
+}
+
+# 解析参数
+BASE_NAME=""
+DEB_PATH=""
+PKGNAME=""
+VERSION=""
+MANUAL_MODE=false
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --base)
+            if [ -z "$2" ]; then
+                log.error "--base 后需要跟名称"
+                usage
+                exit 1
+            fi
+            BASE_NAME="$2"
+            shift 2
+            ;;
+        --pkgname)
+            PKGNAME="$2"
+            shift 2
+            ;;
+        --version)
+            VERSION="$2"
+            shift 2
+            ;;
+        --manual)
+            MANUAL_MODE=true
+            shift
+            ;;
+        -*)
+            log.error "未知选项: $1"
+            usage
+            exit 1
+            ;;
+        *)
+            if [ -z "$DEB_PATH" ]; then
+                DEB_PATH="$1"
+                shift
+            else
+                log.error "未知参数或多余的参数: $1"
+                usage
+                exit 1
+            fi
+            ;;
+    esac
+done
+
+# 基本参数验证
+if [ -z "$BASE_NAME" ]; then
+    log.error "错误：必须提供 --base 参数"
+    usage
+    exit 1
+fi
+
+# 检查 base 是否存在
+BASE_DIR="/var/lib/apm/${BASE_NAME}"
+if [ ! -d "$BASE_DIR" ]; then
+    # 也检查 ace-env 内的路径
+    BASE_DIR_ALT="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASE_NAME}"
+    if [ -d "$BASE_DIR_ALT" ]; then
+        BASE_DIR="$BASE_DIR_ALT"
+    else
+        log.error "错误：基础环境不存在: $BASE_NAME"
+        exit 1
+    fi
+fi
+
+log.info "基础环境: $BASE_NAME"
+log.info "基础环境路径: $BASE_DIR"
+
+# 如果传入了 DEB_PATH，检查文件是否存在
+if [ -n "$DEB_PATH" ] && [ ! -f "$DEB_PATH" ]; then
+    log.error "错误：DEB文件不存在: $DEB_PATH"
+    exit 1
+fi
+
+# 1. 创建临时工作目录
+CRAFT_DIR="$HOME/apm-addons-craft-$$"
+log.info "创建临时工作目录: $CRAFT_DIR"
+mkdir -p "$CRAFT_DIR"/{core,work,mergedir,new-pkg}
+export CRAFT_DIR
+
+# 检查是否已挂载，避免重复挂载
+cleanup_mount() {
+    if mountpoint -q "$CRAFT_DIR/mergedir"; then
+        log.info "解除挂载: $CRAFT_DIR/mergedir"
+        sudo umount "$CRAFT_DIR/mergedir" || true
+    fi
+}
+
+# 清理函数
+cleanup() {
+    log.info "开始清理..."
+    cleanup_mount
+    if [ -d "$CRAFT_DIR" ]; then
+        log.info "删除临时目录: $CRAFT_DIR"
+        sudo rm -rf "$CRAFT_DIR"
+    fi
+}
+
+# 设置退出时清理
+trap cleanup EXIT
+
+# 2. 构建 lowerdir 路径（base + base 的现有 addons）
+log.info "构建 overlay lowerdir 路径..."
+LOWERDIRS=()
+
+# 添加 base 本身
+BASE_CORE_PATH="${BASE_DIR}/files/core"
+BASE_ACEENV_PATH="${BASE_DIR}/files/ace-env"
+
+if [ -d "$BASE_ACEENV_PATH" ]; then
+    log.info "使用 base ace-env 路径: $BASE_ACEENV_PATH"
+    LOWERDIRS+=("$BASE_ACEENV_PATH")
+elif [ -d "$BASE_CORE_PATH" ]; then
+    log.info "使用 base core 路径: $BASE_CORE_PATH"
+    LOWERDIRS+=("$BASE_CORE_PATH")
+else
+    log.error "错误：基础环境路径不存在: $BASE_NAME"
+    exit 1
+fi
+
+# 添加 base 已有的 addons
+_add_base_addons() {
+    local base_pkg_dir="$1"
+    local addon_file
+    local addon_name
+    local addon_dirs=()
+
+    # 读取 info_layer_addons 主文件
+    if [ -f "${base_pkg_dir}/info_layer_addons" ]; then
+        while IFS= read -r addon_name; do
+            [ -z "$addon_name" ] && continue
+            addon_dirs+=("$addon_name")
+        done < "${base_pkg_dir}/info_layer_addons"
+    fi
+
+    # 读取 info_layer_addons.d 目录
+    if [ -d "${base_pkg_dir}/info_layer_addons.d" ]; then
+        for addon_file in $(ls -1 "${base_pkg_dir}/info_layer_addons.d" 2>/dev/null | sort); do
+            addon_name="${addon_file#*-}"
+            [ -z "$addon_name" ] && continue
+            addon_dirs+=("$addon_name")
+        done
+    fi
+
+    local addon
+    for addon in "${addon_dirs[@]}"; do
+        local addon_path="/var/lib/apm/${addon}"
+        if [ ! -d "$addon_path" ]; then
+            addon_path="/var/lib/apm/apm/files/ace-env/var/lib/apm/${addon}"
+        fi
+
+        if [ -d "${addon_path}/files/ace-env" ]; then
+            log.info "  挂载已有 addon: $addon (ace-env)"
+            LOWERDIRS+=("${addon_path}/files/ace-env")
+        elif [ -d "${addon_path}/files/core" ]; then
+            log.info "  挂载已有 addon: $addon (core)"
+            LOWERDIRS+=("${addon_path}/files/core")
+        else
+            log.warn "已有 addon 路径不存在，跳过: $addon"
+        fi
+    done
+}
+
+_add_base_addons "$BASE_DIR"
+
+# 将 lowerdirs 数组用冒号连接
+LOWERDIR=$(IFS=:; echo "${LOWERDIRS[*]}")
+log.debug "最终 lowerdir: $LOWERDIR"
+
+# 3. 进行融合挂载
+log.info "正在进行融合挂载..."
+sudo fuse-overlayfs \
+    -o "lowerdir=$LOWERDIR,upperdir=$CRAFT_DIR/core/,workdir=$CRAFT_DIR/work/" \
+    "$CRAFT_DIR/mergedir"
+
+if ! mountpoint -q "$CRAFT_DIR/mergedir"; then
+    log.error "错误：融合挂载失败"
+    exit 1
+fi
+
+log.info "挂载完成: $CRAFT_DIR/mergedir"
+
+# 导出 chrootEnvPath 以便 ace-run-pkg 使用
+export chrootEnvPath="$CRAFT_DIR/mergedir"
+log.debug "已导出 chrootEnvPath=$chrootEnvPath"
+
+# 如果在手动模式下，立即打开交互 shell 并在退出后继续
+if [ "$MANUAL_MODE" = true ]; then
+    log.info "进入手动模式：将在融合挂载环境中打开交互 shell（使用 ace-run-pkg）。"
+    log.info "在 shell 中，您可以手动修改、测试安装或进行其他操作。退出 shell 后脚本将继续。"
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg bash --login || {
+        log.warn "ace-run-pkg shell 退出或出现错误，继续脚本..."
+    }
+    log.info "用户已退出手动 shell，脚本将继续。"
+
+    while true; do
+        echo ""
+        read -r -p "是否现在进行 addons 包的自动打包？ (y = 打包, r = 返回 shell, n = 跳过打包) [y/r/n]: " yn
+        case "$yn" in
+            y|Y)
+                break
+                ;;
+            r|R)
+                log.info "返回交互 shell（使用 ace-run-pkg）。退出 shell 后再次询问。"
+                sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg bash --login || true
+                ;;
+            n|N)
+                log.info "跳过自动打包。脚本结束。"
+                exit 0
+                ;;
+            *)
+                echo "请输入 y, r, 或 n。"
+                ;;
+        esac
+    done
+fi
+
+# 4. 如果有 DEB 文件，进行安装
+if [ -n "$DEB_PATH" ]; then
+    log.info "在融合环境中更新包列表..."
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg aptss update || log.warn "aptss update 返回非零状态，继续但请注意"
+
+    log.info "在融合环境中安装 DEB 包..."
+    if ! sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg ssaudit "$DEB_PATH" --native --no-create-desktop-entry ; then
+        log.error "错误：DEB 包安装失败（ssaudit）"
+        exit 1
+    fi
+    log.info "DEB 包安装完成（ssaudit）"
+
+    # 清理 apt 缓存
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg aptss clean || true
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/apt/lists || true
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/aptss/lists || true
+    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/cache/apt/archives/* || true
+fi
+
+# 5. 清理 .dpkg-new 文件
+log.info "搜索并清理 .dpkg-new 文件..."
+find "$CRAFT_DIR/core" -name "*.dpkg-new" 2>/dev/null | while read -r file; do
+    sudo rm -vfr "$file"
+done
+
+COUNT=$(find "$CRAFT_DIR/core" -name "*.dpkg-new" -type f 2>/dev/null | wc -l)
+if [ "$COUNT" -eq 0 ]; then
+    log.info "已清理所有 .dpkg-new 文件"
+else
+    log.warn "仍有 $COUNT 个 .dpkg-new 文件存在"
+fi
+
+# 6. 准备打包参数
+ORIG_ARCH="$(dpkg --print-architecture 2>/dev/null || echo "unknown")"
+
+# 确定包名
+if [ -z "$PKGNAME" ]; then
+    if [ "$MANUAL_MODE" = true ]; then
+        read -r -p "请输入要创建的 addons 包名 (建议格式: ${BASE_NAME}-<描述>-addons): " PKGNAME
+    else
+        log.warn "未指定包名，使用默认格式: ${BASE_NAME}-addons"
+        PKGNAME="${BASE_NAME}-addons"
+    fi
+fi
+
+# 确定版本
+if [ -z "$VERSION" ]; then
+    if [ "$MANUAL_MODE" = true ]; then
+        read -r -p "请输入要创建的版本 (Version) [默认 1.0.0-apm]: " VERSION
+    fi
+    VERSION="${VERSION:-1.0.0-apm}"
+fi
+
+NEW_PKGNAME="$PKGNAME"
+NEW_VERSION="$VERSION"
+
+log.info "将使用的新包名: $NEW_PKGNAME"
+log.info "将使用的新版本: $NEW_VERSION"
+log.info "使用的架构: $ORIG_ARCH"
+
+# 7. 创建新的 addons 包结构
+log.info "创建新的 addons 包结构..."
+PKG_BUILD_DIR="$CRAFT_DIR/new-pkg"
+mkdir -p "$PKG_BUILD_DIR/DEBIAN"
+mkdir -p "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/files" 2>/dev/null || true
+
+# 复制融合环境（core, work）到新的包内 files
+log.info "复制融合环境文件..."
+sudo cp -r "$CRAFT_DIR"/core "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/files/" 2>/dev/null || true
+sudo cp -r "$CRAFT_DIR"/work "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/files/" 2>/dev/null || true
+sudo chmod -R 755 "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/files/" 2>/dev/null || true
+
+# 创建 postinst 脚本：安装时创建 info_layer_addons.d 标记
+cat > "$PKG_BUILD_DIR/DEBIAN/postinst" << EOF
+#!/bin/bash
+# 创建 addons 标记
+mkdir -p /var/lib/apm/${BASE_NAME}/info_layer_addons.d
+echo "${NEW_PKGNAME}" > /var/lib/apm/${BASE_NAME}/info_layer_addons.d/50-${NEW_PKGNAME}
+EOF
+chmod +x "$PKG_BUILD_DIR/DEBIAN/postinst"
+
+# 创建 postrm 脚本：卸载时删除标记和包目录
+cat > "$PKG_BUILD_DIR/DEBIAN/postrm" << EOF
+#!/bin/bash
+PACKAGE_NAME="\$DPKG_MAINTSCRIPT_PACKAGE"
+
+if [ "\$1" = "remove" ] || [ "\$1" = "purge" ]; then
+    echo "清理卸载残留"
+    rm -f "/var/lib/apm/${BASE_NAME}/info_layer_addons.d/50-\${PACKAGE_NAME}"
+    rm -rf "/var/lib/apm/\${PACKAGE_NAME}"
+    for username in \$(ls /home); do
+        if [ -d "/home/\${username}/.apm/\${PACKAGE_NAME}" ]; then
+            rm -fr "/home/\${username}/.apm/\${PACKAGE_NAME}"
+        fi
+    done
+else
+    echo "非卸载，跳过清理"
+fi
+EOF
+chmod +x "$PKG_BUILD_DIR/DEBIAN/postrm"
+
+# 8. 解除挂载（如果尚未解除）
+log.info "解除挂载..."
+cleanup_mount
+
+# 计算目录大小
+calculate_directory_size() {
+    local dir="$1"
+    if [ -d "$dir" ]; then
+        du -sk "$dir" | cut -f1
+    else
+        echo "0"
+    fi
+}
+
+# 创建 control 文件
+cat > "${PKG_BUILD_DIR}/DEBIAN/control" << EOF
+Package: $NEW_PKGNAME
+Version: $NEW_VERSION
+Architecture: $ORIG_ARCH
+Maintainer: APM Addons Maker <apm-addons@spark-app.store>
+Depends: $BASE_NAME
+Installed-Size: $(calculate_directory_size "$PKG_BUILD_DIR")
+Description: APM addons package for ${BASE_NAME}
+  This package provides additional layers for the ${BASE_NAME} environment.
+  Addons type: ${NEW_PKGNAME#${BASE_NAME}-}
+EOF
+
+# 9. 打包并生成输出文件名
+OUTPUT_DEB="${NEW_PKGNAME}_${NEW_VERSION}_${ORIG_ARCH}.deb"
+log.info "开始使用 fakeroot 打包: $OUTPUT_DEB"
+fakeroot dpkg-deb -Z xz --build "$PKG_BUILD_DIR" "$OUTPUT_DEB" || {
+    log.error "错误：打包 addons 包失败"
+    exit 1
+}
+
+log.info "Addons 包创建完成！"
+log.info "生成的包: $OUTPUT_DEB"
+log.info "包名: $NEW_PKGNAME"
+log.info "版本: $NEW_VERSION"
+log.info "架构: $ORIG_ARCH"
+log.info "依赖: $BASE_NAME"
+log.info "说明: 安装后将在 ${BASE_NAME}/info_layer_addons.d/ 中注册此 addons"
+
+# 退出（trap 会触发 cleanup）
+exit 0

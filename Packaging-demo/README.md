@@ -30,7 +30,10 @@ APM 使用 OverlayFS 来管理软件包的文件系统层级，从上到下的�
 3. **依赖层**
    由 `info` 文件递归解析出的所有依赖包
 
-4. **底层 Runtime**
+4. **Addons 层**
+   由 `info_layer_addons` 和 `info_layer_addons.d` 注册的 addons 包，位于对应 base 之上
+
+5. **底层 Runtime**
    最基础的运行时环境（如 `amber-pm-bookworm`）
 
 这种层叠结构允许上层文件覆盖下层文件，实现灵活、高效的依赖管理与环境定制。
@@ -227,6 +230,86 @@ amber-pm-bookworm-mesa
 ```
 amber-pm-bookworm-mesa:amber-pm-bookworm
 ```
+
+---
+
+## info_layer_addons / info_layer_addons.d（Addons 层）
+
+`info_layer_addons` 和 `info_layer_addons.d` 是 **1.3.0+** 引入的标准，用于在 **base 之上叠加 addons 层**，使所有运行在该 base 上的应用自动继承 addons 环境。
+
+### 使用场景
+
+- 为所有基于同一 base 的应用统一注入 NVIDIA 驱动
+- 为所有基于同一 base 的应用统一更新 Mesa / Vulkan
+- 为所有基于同一 base 的应用统一提供 Git、Java、Python 等运行时环境
+- 无需修改 base 本身，即可同步变更环境
+
+### 规则说明
+
+- `info_layer_addons` — 位于 base 包目录下的可选文件，每行一个 addons 包名
+- `info_layer_addons.d/` — 位于 base 包目录下的可选目录，包含文件名格式为 `优先级-addons包名` 的文件
+- 数字越小优先级越高（排序靠前）
+- `.d` 目录中的 addons 优先级高于 `info_layer_addons` 文件中的 addons
+- **即使 base 没有 `info` 文件，也可以有 `info_layer_addons`**（最底层 base 也可以有 addons）
+- APM 在运行时自动读取并挂载这些 addons
+
+### Addons 包结构
+
+Addons 包是一种特殊的 APM 包，**不需要 `info` 文件和 `entries/` 目录**：
+
+```
+/var/lib/apm/<base>-<描述>-addons/
+├── files
+│   ├── core/          # upperdir（addons 的文件内容）
+│   └── work/          # OverlayFS 工作目录
+```
+
+### Addons 包命名规范
+
+建议格式：`<base>-<描述>-addons`
+
+示例：
+- `amber-pm-bookworm-nvidia-addons`
+- `amber-pm-trixie-mesa-addons`
+- `amber-pm-bookworm-java-addons`
+
+### 创建 Addons 包
+
+推荐使用 `amber-pm-addons-maker` 工具：
+
+```bash
+# 手动模式（交互式 shell 安装软件后打包）
+amber-pm-addons-maker --base amber-pm-bookworm --manual --pkgname amber-pm-bookworm-nvidia-addons
+
+# 自动模式（直接安装 deb 后打包）
+amber-pm-addons-maker --base amber-pm-bookworm /path/to/nvidia-driver.deb --pkgname amber-pm-bookworm-nvidia-addons
+```
+
+安装 addons 包后，它会在对应 base 的 `info_layer_addons.d/` 目录中自动注册，所有依赖该 base 的应用下次启动时即可自动加载该 addons。
+
+### 示例
+
+假设 `amber-pm-bookworm-nvidia-addons` 已安装并注册到 `amber-pm-bookworm`：
+
+`amber-pm-bookworm/info_layer_addons.d/50-amber-pm-bookworm-nvidia-addons`：
+
+```
+amber-pm-bookworm-nvidia-addons
+```
+
+应用包 `eom` 的 `info`：
+
+```
+amber-pm-bookworm
+```
+
+最终 lowerdir 顺序：
+
+```
+amber-pm-bookworm-nvidia-addons:amber-pm-bookworm
+```
+
+所有运行 `apm run eom` 的实例都会自动加载 NVIDIA addons。
 
 ---
 

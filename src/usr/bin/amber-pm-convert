@@ -15,18 +15,20 @@ fi
 
 # 显示用法信息
 usage() {
-    echo "用法: $SCRIPT_NAME [--manual] --base <basename> [--base <basename> ...] <deb文件路径>"
+    echo "用法: $SCRIPT_NAME [--manual] --base <basename> [--base <basename> ...] [--addons <addon-name> ...] <deb文件路径>"
     echo "       或者在手动模式下不传入 DEB 文件： $SCRIPT_NAME --manual --base <basename> [--base <basename> ...]"
     echo ""
     echo "参数说明:"
     echo "  --manual     启用手动模式：融合挂载后打开交互 shell，退出 shell 后脚本继续"
     echo "  --basename   必填参数（非手动模式下），指定基础环境名称，可多次使用"
+    echo "  --addons     可选参数，指定额外挂载的 addons 包名称，可多次使用"
     echo "  deb文件路径  要转换的DEB文件路径（非手动且非空模式下必填）"
     echo "  --pkgname    可选参数，指定新包的包名（默认使用原DEB包名）"
     echo "  --version    可选参数，指定新包的版本号（默认在原版本后追加'-apm'）"
     echo ""
     echo "示例:"
     echo "  $SCRIPT_NAME --base amber-pm-trixie /path/to/package.deb"
+    echo "  $SCRIPT_NAME --base amber-pm-trixie --addons amber-pm-trixie-nvidia-addons /path/to/package.deb"
     echo "  $SCRIPT_NAME --manual --base amber-pm-trixie   # 只融合挂载并进入手动 shell"
     echo "  $SCRIPT_NAME --manual --base amber-pm-trixie --pkgname newpkg --version 1.2.3 /path/to/package.deb"
     echo ""
@@ -36,6 +38,7 @@ usage() {
 # 解析参数
 BASENAMES=()        # 存放实际用于构建 overlay 的 base（可能会被递归添加）
 BASENAMES_ORIG=()   # 存放用户原始输入的 base 列表（用于 control 中 Depends 等）
+ADDONS=()           # 存放用户显式指定的 addons 包名
 DEB_PATH=""
 PKGNAME=""
 VERSION=""
@@ -52,6 +55,15 @@ while [ $# -gt 0 ]; do
             fi
             BASENAMES+=("$2")
             BASENAMES_ORIG+=("$2")
+            shift 2
+            ;;
+        --addons)
+            if [ -z "$2" ]; then
+                log.error "--addons 后需要跟 addons 包名"
+                usage
+                exit 1
+            fi
+            ADDONS+=("$2")
             shift 2
             ;;
         --pkgname)
@@ -205,13 +217,65 @@ log.info "将使用的新包名: ${NEW_PKGNAME:-<未指定>}"
 log.info "将使用的新版本: ${NEW_VERSION:-<未指定>}"
 log.info "使用的架构: $ORIG_ARCH"
 
-# 2. 构建 lowerdir 路径（多个 base 按顺序叠放）
+# 辅助函数：读取某个 base 的 addons 并追加到 LOWERDIRS
+_add_base_addons_to_lowerdirs() {
+    local base_name="$1"
+    local base_dir="/var/lib/apm/apm/files/ace-env/var/lib/apm/${base_name}"
+    if [ ! -d "$base_dir" ]; then
+        base_dir="/var/lib/apm/${base_name}"
+    fi
+    [ ! -d "$base_dir" ] && return
+
+    local addon_dirs=()
+    local addon_file
+    local addon_name
+
+    # 读取 info_layer_addons 主文件
+    if [ -f "${base_dir}/info_layer_addons" ]; then
+        while IFS= read -r addon_name; do
+            [ -z "$addon_name" ] && continue
+            addon_dirs+=("$addon_name")
+        done < "${base_dir}/info_layer_addons"
+    fi
+
+    # 读取 info_layer_addons.d 目录
+    if [ -d "${base_dir}/info_layer_addons.d" ]; then
+        for addon_file in $(ls -1 "${base_dir}/info_layer_addons.d" 2>/dev/null | sort); do
+            addon_name="${addon_file#*-}"
+            [ -z "$addon_name" ] && continue
+            addon_dirs+=("$addon_name")
+        done
+    fi
+
+    local addon
+    for addon in "${addon_dirs[@]}"; do
+        local addon_path="/var/lib/apm/${addon}"
+        if [ ! -d "$addon_path" ]; then
+            addon_path="/var/lib/apm/apm/files/ace-env/var/lib/apm/${addon}"
+        fi
+
+        if [ -d "${addon_path}/files/ace-env" ]; then
+            log.info "  自动挂载 addon: $addon (ace-env)"
+            LOWERDIRS+=("${addon_path}/files/ace-env")
+        elif [ -d "${addon_path}/files/core" ]; then
+            log.info "  自动挂载 addon: $addon (core)"
+            LOWERDIRS+=("${addon_path}/files/core")
+        else
+            log.warn "自动 addon 路径不存在，跳过: $addon"
+        fi
+    done
+}
+
+# 2. 构建 lowerdir 路径（多个 base 按顺序叠放，包含自动 addons）
 log.info "构建 overlay lowerdir 路径..."
 LOWERDIRS=()
 
 for BASENAME in "${BASENAMES[@]}"; do
     ACE_ENV_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/ace-env"
     CORE_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/core"
+
+    # 先挂载该 base 的 addons（addons 在 base 之上）
+    _add_base_addons_to_lowerdirs "$BASENAME"
 
     if [ -d "$ACE_ENV_PATH" ]; then
         log.info "使用 ace-env 路径: $ACE_ENV_PATH"
@@ -223,6 +287,26 @@ for BASENAME in "${BASENAMES[@]}"; do
         log.error "错误：基础环境路径不存在: $BASENAME"
         log.error "  检查的路径: $ACE_ENV_PATH"
         log.error "  检查的路径: $CORE_PATH"
+        exit 1
+    fi
+done
+
+# 追加用户显式指定的 addons（放在 bases 之上）
+for addon in "${ADDONS[@]}"; do
+    ADDON_PATH="/var/lib/apm/${addon}"
+    if [ ! -d "$ADDON_PATH" ]; then
+        ADDON_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${addon}"
+    fi
+
+    if [ -d "${ADDON_PATH}/files/ace-env" ]; then
+        log.info "使用显式 addon ace-env 路径: ${ADDON_PATH}/files/ace-env"
+        LOWERDIRS+=("${ADDON_PATH}/files/ace-env")
+    elif [ -d "${ADDON_PATH}/files/core" ]; then
+        log.info "使用显式 addon core 路径: ${ADDON_PATH}/files/core"
+        LOWERDIRS+=("${ADDON_PATH}/files/core")
+    else
+        log.error "错误：显式指定的 addon 路径不存在: $addon"
+        log.error "  检查的路径: ${ADDON_PATH}"
         exit 1
     fi
 done
@@ -751,8 +835,29 @@ calculate_directory_size() {
     fi
 }
 
-# 构建依赖字符串 - 包含所有用户原始输入的 base（用于 control）
-DEPENDS_STR=$(IFS=,; echo "${BASENAMES_ORIG[*]}")
+# 构建依赖字符串 - 包含所有用户原始输入的 base 和显式指定的 addons（用于 control）
+DEPENDS_PARTS=("${BASENAMES_ORIG[@]}")
+
+# 如果包名是 addons 格式（*-addons），确保 base 已在依赖中
+if [[ "${NEW_PKGNAME}" == *-addons ]]; then
+    log.info "检测到 addons 包，确保 base 依赖已包含"
+fi
+
+# 追加显式指定的 addons 到依赖
+for addon in "${ADDONS[@]}"; do
+    FOUND_ADDON=false
+    for existing in "${DEPENDS_PARTS[@]}"; do
+        if [ "$existing" = "$addon" ]; then
+            FOUND_ADDON=true
+            break
+        fi
+    done
+    if [ "$FOUND_ADDON" = false ]; then
+        DEPENDS_PARTS+=("$addon")
+    fi
+done
+
+DEPENDS_STR=$(IFS=,; echo "${DEPENDS_PARTS[*]}")
 
 # 若打包前没有 NEW_PKGNAME/NEW_VERSION，交互询问（一般出现在手动无DEB场景）
 if [ -z "$NEW_PKGNAME" ]; then

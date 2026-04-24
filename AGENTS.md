@@ -62,7 +62,27 @@ amber-pm-convert --base amber-pm-trixie /path/to/package.deb
 amber-pm-convert --base amber-pm-bookworm-spark-wine /path/to/package.deb --pkgname new-pkg --version 1.0.0
 ```
 
-### 2.2 amber-pm-dstore-patch
+### 2.2 amber-pm-addons-maker
+
+**功能**：创建 APM addons 包，用于在 base 之上叠加额外的环境层。
+
+**使用场景**：
+- 为 base 环境添加 NVIDIA 驱动、Mesa 补丁
+- 为 base 环境添加 Git、Java、Python 等运行时
+- 所有基于该 base 的应用自动继承 addons 环境
+
+**示例**：
+```bash
+amber-pm-addons-maker --base amber-pm-bookworm --manual --pkgname amber-pm-bookworm-nvidia-addons
+amber-pm-addons-maker --base amber-pm-trixie /path/to/mesa-patch.deb --pkgname amber-pm-trixie-mesa-addons
+```
+
+**说明**：
+- addons 包命名格式建议为 `<base>-<描述>-addons`
+- 安装后自动在对应 base 的 `info_layer_addons.d/` 中注册
+- 支持 `--manual` 参数进入交互式创建流程
+
+### 2.3 amber-pm-dstore-patch
 
 **功能**：修补应用商店相关配置。
 

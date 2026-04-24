@@ -65,20 +65,39 @@ Commands:
 ## APM Deb 包全自动转换器使用方法
 
 ```
-用法: amber-pm-convert --base <basename> [--base <basename> ...] <deb文件路径> [--pkgname <包名>] [--version <版本号>]
+用法: amber-pm-convert --base <basename> [--base <basename> ...] [--addons <addon-name> ...] <deb文件路径> [--pkgname <包名>] [--version <版本号>]
 
 参数说明:
   --basename   必填参数，指定基础环境名称，可多次使用指定多个基础环境
+  --addons     可选参数，指定额外挂载的 addons 包，可多次使用
   deb文件路径   必填参数，要转换的 Deb 文件路径
   --pkgname    可选参数，指定新包的包名（默认使用原 Deb 包名）
   --version    可选参数，指定新包的版本号（默认在原版本后追加'-apm'）
 
 示例:
   amber-pm-convert --base amber-pm-trixie /path/to/package.deb
+  amber-pm-convert --base amber-pm-trixie --addons amber-pm-trixie-nvidia-addons /path/to/package.deb
   amber-pm-convert --base amber-pm-bookworm-spark-wine /path/to/package.deb --pkgname new-pkg --version 1.0.0
 
 最下层的 base 在最后，从上到下写 base
 
+```
+
+## APM Addons 包创建工具
+
+```
+用法: amber-pm-addons-maker --base <base-name> [--manual] [--pkgname <包名>] [--version <版本>] [deb文件路径]
+
+参数说明:
+  --base       必填参数，指定基础环境名称
+  --manual     启用手动模式：融合挂载后打开交互 shell
+  --pkgname    可选参数，指定包名（建议格式：<base>-<描述>-addons）
+  --version    可选参数，指定版本号（默认 1.0.0-apm）
+  deb文件路径  可选参数，要安装到 addons 环境中的 Deb 文件
+
+示例:
+  amber-pm-addons-maker --base amber-pm-bookworm --manual --pkgname amber-pm-bookworm-nvidia-addons
+  amber-pm-addons-maker --base amber-pm-trixie /path/to/mesa.deb --pkgname amber-pm-trixie-mesa-addons
 ```
 
 > 注意：APM 软件包为特殊的 Deb 软件包，因此若您在使用 Debian 或其他使用 dpkg 管理软件包的发行版，也可使用 apt 直接将 APM 软件包安装至系统中，同样可供使用。对于此种情况，请使用系统自带的 apt 进行软件包管理。
@@ -88,6 +107,8 @@ Commands:
 详见 [Packaging-demo](Packaging-demo)。
 
 > 1.1.5+ 版本支持了覆盖 base 功能，相见 https://gitee.com/amber-ce/amber-pm/blob/master/Packaging-demo/README.md#info_layer_override-%E6%96%87%E4%BB%B6
+>
+> 1.3.0+ 版本支持了 addons 层功能，相见 https://gitee.com/amber-ce/amber-pm/blob/master/Packaging-demo/README.md#info_layer_addons--info_layer_addonsdaddons-%E5%B1%82
 
 ## APM 构建 Tips
 

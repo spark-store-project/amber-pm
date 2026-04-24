@@ -92,27 +92,99 @@ apm_exec(){
     # ===============================
     local lowerdirs=()
     local env_layers=()
+    local addon_envs=()
+    local processed_addon_pkgs=()
     local current_dir="${PATH_PREFIX}/var/lib/apm/${coredir}"
     local next_info_file=""
     local APM_RUN_EXEC=/var/lib/apm/apm/files/ace-run
 
     # ===============================
-    # 递归读取 info / info_env
+    # 辅助函数：解析并添加某个包的 addons
+    # ===============================
+    _resolve_addons() {
+        local pkgname="$1"
+        # 去重检查：每个包的 addons 只处理一次
+        for processed in "${processed_addon_pkgs[@]}"; do
+            [[ "$processed" == "$pkgname" ]] && return
+        done
+        processed_addon_pkgs+=("$pkgname")
+
+        local pkg_dir="${PATH_PREFIX}/var/lib/apm/${pkgname}"
+        local all_addons=()
+
+        # 先读取 info_layer_addons.d 目录（.d 配置优先级更高）
+        if [[ -d "${pkg_dir}/info_layer_addons.d" ]]; then
+            local addon_file
+            for addon_file in $(ls -1 "${pkg_dir}/info_layer_addons.d" 2>/dev/null | sort); do
+                local addon_name="${addon_file#*-}"
+                [[ -z "$addon_name" ]] && continue
+                all_addons+=("$addon_name")
+            done
+        fi
+
+        # 再读取 info_layer_addons 主文件
+        if [[ -f "${pkg_dir}/info_layer_addons" ]]; then
+            local addon_name
+            while IFS= read -r addon_name; do
+                [[ -z "$addon_name" ]] && continue
+                all_addons+=("$addon_name")
+            done < "${pkg_dir}/info_layer_addons"
+        fi
+
+        local addon
+        for addon in "${all_addons[@]}"; do
+            # 在 lowerdirs 中去重
+            local dup=false
+            local existing
+            for existing in "${lowerdirs[@]}"; do
+                if [[ "$existing" == "${PATH_PREFIX}/var/lib/apm/${addon}/files/ace-env" ]] || \
+                   [[ "$existing" == "${PATH_PREFIX}/var/lib/apm/${addon}/files/core" ]]; then
+                    dup=true
+                    break
+                fi
+            done
+            [[ "$dup" == true ]] && continue
+
+            if [[ -d "${PATH_PREFIX}/var/lib/apm/${addon}/files/ace-env" ]]; then
+                lowerdirs+=("${PATH_PREFIX}/var/lib/apm/${addon}/files/ace-env")
+            elif [[ -d "${PATH_PREFIX}/var/lib/apm/${addon}/files/core" ]]; then
+                lowerdirs+=("${PATH_PREFIX}/var/lib/apm/${addon}/files/core")
+            else
+                log.warn "Addon layer not found: $addon"
+                continue
+            fi
+
+            if [[ -f "${PATH_PREFIX}/var/lib/apm/${addon}/info_env" ]]; then
+                addon_envs+=("${PATH_PREFIX}/var/lib/apm/${addon}/info_env")
+            fi
+        done
+    }
+
+    # ===============================
+    # 递归读取 info / info_env / addons
     # ===============================
     while : ; do
         next_info_file="${current_dir}/info"
 
-        # 记录 info_env（底层优先）
+        # 记录 info_env
         if [[ -f "${current_dir}/info_env" ]]; then
             env_layers+=("${current_dir}/info_env")
         fi
 
-        # 没有 info 就停止
-        [[ ! -f "$next_info_file" ]] && break
+        # 没有 info 也处理 addons（最底层 base 也可以有 addons），然后停止
+        if [[ ! -f "$next_info_file" ]]; then
+            local pkgname
+            pkgname="$(basename "$current_dir")"
+            _resolve_addons "$pkgname"
+            break
+        fi
 
         # 读取依赖层
         while IFS= read -r basedir; do
             [[ -z "$basedir" ]] && continue
+
+            # 先处理该 base 的 addons（addons 在 base 之上）
+            _resolve_addons "$basedir"
 
             if [[ -d "${PATH_PREFIX}/var/lib/apm/${basedir}/files/ace-env" ]]; then
                 lowerdirs+=("${PATH_PREFIX}/var/lib/apm/${basedir}/files/ace-env")
@@ -166,6 +238,17 @@ apm_exec(){
         if [[ ${#override_envs[@]} -gt 0 ]]; then
             env_layers+=("${override_envs[@]}")
         fi
+    fi
+
+    # ===============================
+    # 追加 addon envs（在 base env 之后，override env 之前）
+    # 反向追加以确保层级高的 addon env 后加载（优先级更高）
+    # ===============================
+    if [[ ${#addon_envs[@]} -gt 0 ]]; then
+        local i
+        for ((i=${#addon_envs[@]}-1; i>=0; i--)); do
+            env_layers+=("${addon_envs[i]}")
+        done
     fi
 
     # ===============================
