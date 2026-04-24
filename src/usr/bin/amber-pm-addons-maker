@@ -325,23 +325,19 @@ sudo cp -r "$CRAFT_DIR"/core "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/files/" 
 sudo cp -r "$CRAFT_DIR"/work "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/files/" 2>/dev/null || true
 sudo chmod -R 755 "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/files/" 2>/dev/null || true
 
-# 创建 postinst 脚本：安装时创建 info_layer_addons.d 标记
-cat > "$PKG_BUILD_DIR/DEBIAN/postinst" << EOF
-#!/bin/bash
-# 创建 addons 标记
-mkdir -p /var/lib/apm/${BASE_NAME}/info_layer_addons.d
-echo "${NEW_PKGNAME}" > /var/lib/apm/${BASE_NAME}/info_layer_addons.d/50-${NEW_PKGNAME}
-EOF
-chmod +x "$PKG_BUILD_DIR/DEBIAN/postinst"
+# 将 addons 标记文件直接放入包内，由 dpkg 统一管理
+# 安装时自动释放到 base 的 info_layer_addons.d/，卸载时自动清理
+mkdir -p "$PKG_BUILD_DIR/var/lib/apm/${BASE_NAME}/info_layer_addons.d"
+echo "${NEW_PKGNAME}" > "$PKG_BUILD_DIR/var/lib/apm/${BASE_NAME}/info_layer_addons.d/50-${NEW_PKGNAME}"
 
-# 创建 postrm 脚本：卸载时删除标记和包目录
+# 创建 postrm 脚本：卸载时清理包目录和用户目录残留
+# 注意：info_layer_addons.d 中的标记文件由 dpkg 自动删除，无需手动处理
 cat > "$PKG_BUILD_DIR/DEBIAN/postrm" << EOF
 #!/bin/bash
 PACKAGE_NAME="\$DPKG_MAINTSCRIPT_PACKAGE"
 
 if [ "\$1" = "remove" ] || [ "\$1" = "purge" ]; then
     echo "清理卸载残留"
-    rm -f "/var/lib/apm/${BASE_NAME}/info_layer_addons.d/50-\${PACKAGE_NAME}"
     rm -rf "/var/lib/apm/\${PACKAGE_NAME}"
     for username in \$(ls /home); do
         if [ -d "/home/\${username}/.apm/\${PACKAGE_NAME}" ]; then
@@ -373,7 +369,7 @@ cat > "${PKG_BUILD_DIR}/DEBIAN/control" << EOF
 Package: $NEW_PKGNAME
 Version: $NEW_VERSION
 Architecture: $ORIG_ARCH
-Maintainer: APM Addons Maker <apm-addons@spark-app.store>
+Maintainer: APM Addons Maker <shenmo@spark-app.store>
 Depends: $BASE_NAME
 Installed-Size: $(calculate_directory_size "$PKG_BUILD_DIR")
 Description: APM addons package for ${BASE_NAME}

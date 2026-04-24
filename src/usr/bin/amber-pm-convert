@@ -872,7 +872,7 @@ cat > "${PKG_BUILD_DIR}/DEBIAN/control" << EOF
 Package: $NEW_PKGNAME
 Version: $NEW_VERSION
 Architecture: $ORIG_ARCH
-Maintainer: APM Converter <apm-convert@spark-app.store>
+Maintainer: APM Converter <shenmo@spark-app.store>
 Depends: $DEPENDS_STR
 Installed-Size: $(calculate_directory_size "$PKG_BUILD_DIR")
 Description: APM converted package from ${ORIG_PKGNAME:-original}
