@@ -264,13 +264,14 @@ if [ -n "$DEB_PATH" ]; then
         exit 1
     fi
     log.info "DEB 包安装完成（ssaudit）"
-
-    # 清理 apt 缓存
-    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg aptss clean || true
-    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/apt/lists || true
-    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/aptss/lists || true
-    sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/cache/apt/archives/* || true
 fi
+
+# 清理 apt 缓存和包列表（无论是否有 DEB 文件或是否 manual 模式）
+log.info "清理 apt 缓存..."
+sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg aptss clean || true
+sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/apt/lists || true
+sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/lib/aptss/lists || true
+sudo -E chrootEnvPath="$chrootEnvPath" /var/lib/apm/apm/files/ace-run-pkg rm -vfr /var/cache/apt/archives/* || true
 
 # 5. 清理 .dpkg-new 文件
 log.info "搜索并清理 .dpkg-new 文件..."
@@ -293,8 +294,19 @@ if [ -z "$PKGNAME" ]; then
     if [ "$MANUAL_MODE" = true ]; then
         read -r -p "请输入要创建的 addons 包名 (建议格式: ${BASE_NAME}-<描述>-addons): " PKGNAME
     else
-        log.warn "未指定包名，使用默认格式: ${BASE_NAME}-addons"
-        PKGNAME="${BASE_NAME}-addons"
+        if [ -n "$DEB_PATH" ]; then
+            DEB_PKG_NAME=$(dpkg-deb -f "$DEB_PATH" Package 2>/dev/null || echo "")
+            if [ -n "$DEB_PKG_NAME" ]; then
+                log.info "未指定包名，使用 Deb 包名生成默认格式: ${BASE_NAME}-${DEB_PKG_NAME}-addons"
+                PKGNAME="${BASE_NAME}-${DEB_PKG_NAME}-addons"
+            else
+                log.warn "无法读取 Deb 包名，使用默认格式: ${BASE_NAME}-addons"
+                PKGNAME="${BASE_NAME}-addons"
+            fi
+        else
+            log.warn "未指定包名，使用默认格式: ${BASE_NAME}-addons"
+            PKGNAME="${BASE_NAME}-addons"
+        fi
     fi
 fi
 
@@ -302,8 +314,22 @@ fi
 if [ -z "$VERSION" ]; then
     if [ "$MANUAL_MODE" = true ]; then
         read -r -p "请输入要创建的版本 (Version) [默认 1.0.0-apm]: " VERSION
+        VERSION="${VERSION:-1.0.0-apm}"
+    else
+        if [ -n "$DEB_PATH" ]; then
+            DEB_PKG_VERSION=$(dpkg-deb -f "$DEB_PATH" Version 2>/dev/null || echo "")
+            if [ -n "$DEB_PKG_VERSION" ]; then
+                log.info "未指定版本，使用 Deb 版本号: ${DEB_PKG_VERSION}"
+                VERSION="$DEB_PKG_VERSION"
+            else
+                log.warn "无法读取 Deb 版本号，使用默认版本: 1.0.0-apm"
+                VERSION="1.0.0-apm"
+            fi
+        else
+            log.warn "未指定版本，使用默认版本: 1.0.0-apm"
+            VERSION="1.0.0-apm"
+        fi
     fi
-    VERSION="${VERSION:-1.0.0-apm}"
 fi
 
 NEW_PKGNAME="$PKGNAME"
