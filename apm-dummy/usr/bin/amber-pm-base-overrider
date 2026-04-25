@@ -3,6 +3,7 @@
 # amber-pm-base-overrider
 # 功能：检查 /opt/apm-dummy/files-to-override 下的文件，并覆盖到所有包含
 #       /var/lib/apm/文件夹/files 的 /var/lib/apm/文件夹/files/ace-env 下
+#       同时删除每个 ace-env 目录下的 amber-ce-tools/bin-override/bwrap
 
 # 日志函数
 log_warn() { echo -e "[\e[33mWARN\e[0m]:  \e[1m$*\e[0m"; }
@@ -13,6 +14,7 @@ log_debug()  { echo -e "[\e[32mDEBUG\e[0m]: \e[1m$*\e[0m"; }
 # 配置
 OVERRIDE_SOURCE="/opt/apm-dummy/files-to-override"
 APM_BASE_DIR="/var/lib/apm"
+BWRAP_PATH="amber-ce-tools/bin-override/bwrap"
 
 # 显示帮助信息
 show_help() {
@@ -30,6 +32,7 @@ amber-pm-base-overrider - APM 基础环境覆盖工具
 功能:
   检查 /opt/apm-dummy/files-to-override 下的文件，
   并覆盖到所有 /var/lib/apm/<包名>/files/ace-env 目录下。
+  同时删除每个 ace-env 目录下的 amber-ce-tools/bin-override/bwrap。
 EOF
 }
 
@@ -67,7 +70,7 @@ fi
 
 # 检查源目录是否为空
 if [ -z "$(ls -A "$OVERRIDE_SOURCE" 2>/dev/null)" ]; then
-    exit 0
+    $VERBOSE && log_info "源目录为空，仅执行清理操作"
 fi
 
 $VERBOSE && log_info "源目录: $OVERRIDE_SOURCE"
@@ -79,8 +82,8 @@ fi
 
 # 计数器
 OVERRIDE_COUNT=0
+DELETE_COUNT=0
 ERROR_COUNT=0
-HAS_CHANGES=false
 
 # 遍历 /var/lib/apm/ 下的所有子目录
 for pkg_dir in "$APM_BASE_DIR"/*/; do
@@ -108,6 +111,35 @@ for pkg_dir in "$APM_BASE_DIR"/*/; do
         continue
     fi
 
+    # ---- 删除 amber-ce-tools/bin-override/bwrap ----
+    bwrap_file="$target_dir/$BWRAP_PATH"
+    if [ -e "$bwrap_file" ] || [ -L "$bwrap_file" ]; then
+        if [ "$DRY_RUN" = true ]; then
+            if [ -d "$bwrap_file" ]; then
+                echo "  [试运行] 将删除目录: $bwrap_file"
+            else
+                echo "  [试运行] 将删除文件: $bwrap_file"
+            fi
+            ((DELETE_COUNT++))
+        else
+            if rm -rf "$bwrap_file" 2>/dev/null; then
+                $VERBOSE && log_info "已删除: $bwrap_file"
+                ((DELETE_COUNT++))
+            else
+                log_error "删除失败: $bwrap_file"
+                ((ERROR_COUNT++))
+            fi
+        fi
+    else
+        $VERBOSE && log_debug "$pkg_name: bwrap 文件不存在，无需删除"
+    fi
+
+    # ---- 覆盖文件 ----
+    # 检查源目录是否为空
+    if [ -z "$(ls -A "$OVERRIDE_SOURCE" 2>/dev/null)" ]; then
+        continue
+    fi
+
     # 检查是否有文件需要更新（比较源文件和目标文件）
     NEED_UPDATE=false
     while IFS= read -r -d '' file; do
@@ -126,7 +158,6 @@ for pkg_dir in "$APM_BASE_DIR"/*/; do
         continue
     fi
 
-    HAS_CHANGES=true
     $VERBOSE && log_info "处理包: $pkg_name"
 
     # 使用 rsync 或 cp 进行覆盖
@@ -150,17 +181,16 @@ for pkg_dir in "$APM_BASE_DIR"/*/; do
     fi
 done
 
-# 只有在有改动或 verbose 模式时才输出统计信息
-if [ "$HAS_CHANGES" = true ] || [ "$VERBOSE" = true ]; then
-    $VERBOSE && log_info "===================================="
-    $VERBOSE && log_info "覆盖操作完成"
-    log_info "成功处理: $OVERRIDE_COUNT 个包"
-    if [ "$DRY_RUN" = true ]; then
-        log_info "[试运行模式] 未实际执行覆盖"
-    fi
-    if [ $ERROR_COUNT -gt 0 ]; then
-        log_error "失败: $ERROR_COUNT 个包"
-    fi
+# 输出统计信息
+$VERBOSE && log_info "===================================="
+$VERBOSE && log_info "操作完成"
+log_info "成功覆盖: $OVERRIDE_COUNT 个包"
+log_info "成功删除 bwrap: $DELETE_COUNT 个包"
+if [ "$DRY_RUN" = true ]; then
+    log_info "[试运行模式] 未实际执行操作"
+fi
+if [ $ERROR_COUNT -gt 0 ]; then
+    log_error "失败: $ERROR_COUNT 个操作"
 fi
 
 exit 0
