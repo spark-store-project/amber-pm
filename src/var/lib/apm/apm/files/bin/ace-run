@@ -14,14 +14,14 @@ export ACE_PACKAGE_NAME=$PKGNAME
 
 chrootEnvPath=/var/lib/apm/$PKGNAME/files/ace-env
 
-if [ ! -e $chrootEnvPath/finish.flag ];then
+# if [ ! -e $chrootEnvPath/finish.flag ];then
 
-if [ "$(id -u)" = "0" ]; then
-    `dirname $chrootEnvPath`/bin/ace-init
-else
-pkexec `dirname $chrootEnvPath`/bin/ace-init
-fi
-
+# if [ "$(id -u)" = "0" ]; then
+#     `dirname $chrootEnvPath`/bin/ace-init
+# else
+# pkexec `dirname $chrootEnvPath`/bin/ace-init
+# fi
+# Ubuntu 26.04 中断了我们配置容器
 
 fi
 non_root_user=$(who  | awk '{print $1}' | head -n 1)
