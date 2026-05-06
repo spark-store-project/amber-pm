@@ -1,32 +1,18 @@
 #!/bin/bash
 
-# 检测是否安装了 XFCE、DDE 或 GNOME 桌面环境
+# 检测是否安装了 KDE Plasma 桌面环境
 # 通过检查系统中是否存在相关的 desktop 文件或关键程序
-is_xfce_or_dde_or_gnome() {
-    # 检查 XFCE
-    if [ -f /usr/share/xsessions/xfce.desktop ] || \
-       [ -f /usr/local/share/xsessions/xfce.desktop ] || \
-       command -v xfce4-session >/dev/null 2>&1; then
-        return 0
-    fi
-    # 检查 DDE/Deepin
-    if [ -f /usr/share/xsessions/deepin.desktop ] || \
-       [ -f /usr/share/xsessions/dde.desktop ] || \
-       [ -f /usr/local/share/xsessions/deepin.desktop ] || \
-       [ -f /usr/local/share/xsessions/dde.desktop ] || \
-       command -v dde-session >/dev/null 2>&1 || \
-       command -v startdde >/dev/null 2>&1; then
-        return 0
-    fi
-    # 检查 GNOME
-    if [ -f /usr/share/xsessions/gnome.desktop ] || \
-       [ -f /usr/share/xsessions/gnome-xorg.desktop ] || \
-       [ -f /usr/share/xsessions/gnome-wayland.desktop ] || \
-       [ -f /usr/local/share/xsessions/gnome.desktop ] || \
-       [ -f /usr/local/share/xsessions/gnome-xorg.desktop ] || \
-       [ -f /usr/local/share/xsessions/gnome-wayland.desktop ] || \
-       command -v gnome-session >/dev/null 2>&1 || \
-       command -v gnome-shell >/dev/null 2>&1; then
+is_kde_plasma() {
+    # 检查 KDE Plasma
+    if [ -f /usr/share/xsessions/plasma.desktop ] || \
+       [ -f /usr/share/xsessions/plasma-xorg.desktop ] || \
+       [ -f /usr/share/xsessions/plasma-wayland.desktop ] || \
+       [ -f /usr/local/share/xsessions/plasma.desktop ] || \
+       [ -f /usr/local/share/xsessions/plasma-xorg.desktop ] || \
+       [ -f /usr/local/share/xsessions/plasma-wayland.desktop ] || \
+       command -v startplasma-x11 >/dev/null 2>&1 || \
+       command -v startplasma-wayland >/dev/null 2>&1 || \
+       command -v plasmashell >/dev/null 2>&1; then
         return 0
     fi
     return 1
@@ -39,13 +25,13 @@ if grep -q "Kylin" /etc/os-release; then
     echo "检测到麒麟系统，使用目标目录: $TARGET_BASE"
 else
     TARGET_BASE="/usr/local/share"
-    # 检测是否为 XFCE、DDE 或 GNOME 桌面环境
-    if is_xfce_or_dde_or_gnome; then
-        APP_TARGET_DIR="$TARGET_BASE/applications"
-        echo "检测到 XFCE/DDE/GNOME 桌面环境，使用目标目录: $APP_TARGET_DIR"
-    else
+    # 检测是否为 KDE Plasma 桌面环境
+    if is_kde_plasma; then
         APP_TARGET_DIR="$TARGET_BASE/applications/apm"
-        echo "使用目标目录: $APP_TARGET_DIR"
+        echo "检测到 KDE Plasma 桌面环境，使用目标目录: $APP_TARGET_DIR"
+    else
+        APP_TARGET_DIR="$TARGET_BASE/applications"
+        echo "使用标准目标目录: $APP_TARGET_DIR"
     fi
 fi
 
@@ -143,4 +129,3 @@ if ! grep -q "Kylin" /etc/os-release; then
         fi
     fi
 fi
-
