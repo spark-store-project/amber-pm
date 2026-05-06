@@ -144,10 +144,3 @@ if ! grep -q "Kylin" /etc/os-release; then
     fi
 fi
 
-# 更新桌面数据库
-if command -v update-desktop-database >/dev/null 2>&1; then
-    echo "正在更新桌面数据库..."
-    update-desktop-database "$TARGET_BASE/applications/"
-else
-    echo "警告: update-desktop-database 命令未找到"
-fi
