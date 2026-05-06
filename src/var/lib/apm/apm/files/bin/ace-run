@@ -22,8 +22,7 @@ chrootEnvPath=/var/lib/apm/$PKGNAME/files/ace-env
 # pkexec `dirname $chrootEnvPath`/bin/ace-init
 # fi
 # Ubuntu 26.04 中断了我们配置容器
-
-fi
+#fi
 non_root_user=$(who  | awk '{print $1}' | head -n 1)
 uid=$(id -u $non_root_user)
 
