@@ -345,6 +345,10 @@ PKG_BUILD_DIR="$CRAFT_DIR/new-pkg"
 mkdir -p "$PKG_BUILD_DIR/DEBIAN"
 mkdir -p "$PKG_BUILD_DIR/var/lib/apm/$NEW_PKGNAME/files" 2>/dev/null || true
 
+# 写入 addons 自身的基础依赖信息，供 amber-pm-convert 识别并自动补依赖。
+echo "$BASE_NAME" > "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/info"
+echo "$BASE_NAME" > "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/info_addon_base"
+
 # 复制融合环境（core, work）到新的包内 files
 log.info "复制融合环境文件..."
 sudo cp -r "$CRAFT_DIR"/core "$PKG_BUILD_DIR/var/lib/apm/${NEW_PKGNAME}/files/" 2>/dev/null || true
