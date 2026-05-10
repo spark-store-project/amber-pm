@@ -28,7 +28,7 @@ fi
 #########################################################################################
 ##########合成bwrap 1. 基础函数配置段
 # 初始化 EXEC_COMMAND 为 bwrap 基础指令
-EXEC_COMMAND="bwrap --dev-bind / / bwrap"
+EXEC_COMMAND="bwrap --dev-bind / / "
 
 # add_command 函数定义
 function add_command() {

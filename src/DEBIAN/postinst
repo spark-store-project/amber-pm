@@ -9,10 +9,13 @@ systemctl daemon-reload
 systemctl enable apm-daily-update
 systemctl start apm-daily-update
 systemctl restart apparmor.service || true
+mkdir -p /etc/apparmor.d/disable/
+ln -sv /etc/apparmor.d/bwrap-userns-restrict /etc/apparmor.d/disable/
 
         if [ -f /usr/lib/sysctl.d/apm.conf ];then
                 sysctl -p /usr/lib/sysctl.d/apm.conf
         fi
+systemctl reload apparmor
 		# Send statistics data
 		/var/lib/apm/apm/files/feedback.sh &
         ln -sv / /host
