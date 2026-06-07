@@ -15,6 +15,15 @@ else
 PKGNAME=$PACKAGE_NAME
 fi
 chrootEnvPath=/var/lib/apm/$PKGNAME/files/ace-env
+is_nixos() {
+    [ -f /etc/os-release ] && grep -Eq '^ID="?nixos"?$' /etc/os-release
+}
+
+APM_CONTAINER_PATH="/amber-ce-tools/bin-override:$PATH"
+if is_nixos; then
+    APM_CONTAINER_PATH="/amber-ce-tools/bin-override:/usr/local/bin:/usr/bin/"
+fi
+
 #if [ ! -e $chrootEnvPath ];then
 echo "Uncompress the env...."
 tar  -xvf $chrootEnvPath.tar.xz -C /var/lib/apm/$PKGNAME/files/
@@ -41,7 +50,7 @@ uid=$(id -u $non_root_user)
 function bookworm-run(){
 bwrap --dev-bind $chrootEnvPath/ / \
   --setenv PULSE_SERVER /run/user/$uid/pulse/native \
-  --setenv PATH /amber-ce-tools/bin-override:$PATH \
+  --setenv PATH "$APM_CONTAINER_PATH" \
   --setenv IS_ACE_ENV "1" \
   --dev-bind-try /media /media \
   --dev-bind-try /tmp /tmp \
@@ -89,7 +98,7 @@ bookworm-run apt clean
 bookworm-run chown -R $(get_current_user)  /usr/lib/locale/
 sudo -u $(get_current_user) bwrap --dev-bind $chrootEnvPath/ / \
   --setenv PULSE_SERVER /run/user/$uid/pulse/native \
-  --setenv PATH /amber-ce-tools/bin-override:$PATH \
+  --setenv PATH "$APM_CONTAINER_PATH" \
   --setenv IS_ACE_ENV "1" \
   --dev-bind $chrootEnvPath/ / \
   --dev-bind-try /media /media \

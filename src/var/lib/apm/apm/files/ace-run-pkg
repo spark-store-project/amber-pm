@@ -7,6 +7,14 @@ export -f bash
 
 chrootEnvPath="${chrootEnvPath:-$(pwd)/ace-env}"
 
+is_nixos() {
+    [ -f /etc/os-release ] && grep -Eq '^ID="?nixos"?$' /etc/os-release
+}
+
+APM_CONTAINER_PATH="/amber-ce-tools/bin-override:$PATH"
+if is_nixos; then
+    APM_CONTAINER_PATH="/amber-ce-tools/bin-override:/usr/local/bin:/usr/bin/"
+fi
 
 
 non_root_user=$(who  | awk '{print $1}' | head -n 1)
@@ -80,7 +88,7 @@ done
 ENV_VARS=(
     "FAKEROOTDONTTRYCHOWN 1"
     "PULSE_SERVER /run/user/\$uid/pulse/native"
-    "PATH /amber-ce-tools/bin-override:\$PATH"
+    "PATH $APM_CONTAINER_PATH"
     "IS_ACE_ENV 1"
     "GTK_USE_PORTAL 1"
     "XDG_DATA_DIRS /amber-ce-tools/additional-data-dir-in-container:\$XDG_DATA_DIRS"
@@ -139,4 +147,3 @@ add_command "bash -c \"${container_command}\""
 
 # 注意: 实际执行时，请确保所有变量（如 $uid, $chrootEnvPath 等）都已正确定义
 eval ${EXEC_COMMAND}
-

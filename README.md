@@ -59,8 +59,9 @@ Commands:
 ### 完整命令列表
 使用 `apm --help-all` 查看完整的命令列表，包括高级命令如 `sandbox-run`、`bwrap-run`、`hold`、`unhold`、`full-upgrade`、`download`、`ssinstall`、`ssaudit`、`debug` 等。
 
+## NixOS 构建与本地测试
 
-
+NixOS 本地构建、安装、module 使用以及 NUR/nixpkgs 打包复用说明见 [docs/NIXOS.md](docs/NIXOS.md)。
 
 ## APM Deb 包全自动转换器使用方法
 
