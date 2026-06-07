@@ -174,13 +174,15 @@ fi
 
 mkdir -p "$target"
 cp -a "$seed"/. "$target"/
+echo '@version@' > "$target/.amber-pm-version"
 chmod -R u+rwX "$target"
 echo "Initialized $target"
 echo "Next step: run '/var/lib/apm/apm/files/bin/ace-init' as root, or run 'apm --help' for CLI smoke testing."
 EOF
     substituteInPlace "$out/bin/amber-pm-init-state" \
       --replace-fail '@bash@' '${bash}' \
-      --replace-fail '@out@' "$out"
+      --replace-fail '@out@' "$out" \
+      --replace-fail '@version@' '${version}'
     chmod +x "$out/bin/amber-pm-init-state"
 
     runHook postInstall
