@@ -7,6 +7,17 @@
 
 let
   cfg = config.programs.amber-pm;
+
+  aceRuntimePath = lib.makeBinPath (with pkgs; [
+    bash
+    bubblewrap
+    coreutils
+    gawk
+    gnugrep
+    gnused
+    gnutar
+    sudo
+  ]);
 in
 {
   options.programs.amber-pm = {
@@ -29,6 +40,7 @@ in
     boot.kernel.sysctl."kernel.apparmor_restrict_unprivileged_userns" = lib.mkDefault 0;
 
     system.activationScripts.amber-pm-state = lib.mkIf cfg.initializeState ''
+      export PATH="${aceRuntimePath}:$PATH"
       target="/var/lib/apm/apm"
       version_file="$target/.amber-pm-version"
       current_version="${cfg.package.version}"
