@@ -8,6 +8,10 @@ log.debug() { echo -e "[\e[32mDEBUG\e[0m]: \e[1m$*\e[0m"; }
 
 SCRIPT_NAME=$(basename "$0")
 
+is_nixos() {
+    [ -r /etc/os-release ] && . /etc/os-release && [ "${ID:-}" = "nixos" ]
+}
+
 if ! command -v dpkg > /dev/null ; then
     log.error "若想使用APM软件包转换器，您需先安装dpkg"
     exit 1
@@ -617,6 +621,12 @@ interactive_copy_entries() {
 process_desktop_file() {
     local desktop_file="$1"
     local pkgname="$2"
+    local apm_exec_prefix="apm run $pkgname"
+
+    if is_nixos; then
+        apm_exec_prefix="/run/current-system/sw/bin/apm run $pkgname"
+    fi
+
     # 新增：精确路径检查
     local apps_path1="/usr/share/applications"
     local apps_path2="/opt/apps/${ORIG_PKGNAME}/entries/applications"
@@ -632,16 +642,16 @@ process_desktop_file() {
     log.info "处理桌面文件: $desktop_file"
     
     # 检查文件是否已经处理过（避免重复添加 apm run）
-    if grep -q "^Exec=apm run $pkgname " "$desktop_file"; then
+    if grep -q "^Exec=${apm_exec_prefix} " "$desktop_file"; then
         log.info "桌面文件已经处理过，跳过: $desktop_file"
         return 0
     fi
     
     # 检查是否有其他包的 apm run 前缀（清理旧的）
-    if grep -q "^Exec=apm run [^ ]* " "$desktop_file"; then
+    if grep -Eq "^Exec=(/run/current-system/sw/bin/)?apm run [^ ]* " "$desktop_file"; then
         log.info "发现旧的 apm run 前缀，清理后重新添加"
         # 移除所有 apm run 前缀
-        sed -i "s|^Exec=apm run [^ ]* ||" "$desktop_file"
+        sed -i -E "s|^Exec=(/run/current-system/sw/bin/)?apm run [^ ]* |Exec=|" "$desktop_file"
     fi
     
     # 尝试用 busybox dos2unix（若不存在则跳过转换）
@@ -653,7 +663,7 @@ process_desktop_file() {
     
     # 处理 Exec 行：在原有命令前追加 apm run $pkgname
     if grep -q '^Exec=' "$desktop_file"; then
-        sed -i "s|^Exec=\(.*\)$|Exec=apm run $pkgname \1|" "$desktop_file"
+        sed -i "s|^Exec=\(.*\)$|Exec=${apm_exec_prefix} \1|" "$desktop_file"
     fi
     
     # 删除 TryExec 行

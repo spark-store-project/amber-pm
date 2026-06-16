@@ -7,6 +7,7 @@
 
 let
   cfg = config.programs.amber-pm;
+  apmXdgDataDir = "/var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir";
 
   aceRuntimePath = lib.makeBinPath (with pkgs; [
     bash
@@ -34,6 +35,19 @@ in
 
   config = lib.mkIf cfg.enable {
     environment.systemPackages = [ cfg.package ];
+    environment.sessionVariables.XDG_DATA_DIRS = lib.mkAfter [ apmXdgDataDir ];
+    environment.etc."systemd/user-environment-generators/60-apm".source =
+      pkgs.writeShellScript "60-apm" ''
+        apm_xdg_data_dir=${lib.escapeShellArg apmXdgDataDir}
+        xdg_data_dirs="''${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+        case ":$xdg_data_dirs:" in
+          *":$apm_xdg_data_dir:"*) ;;
+          *) xdg_data_dirs="$xdg_data_dirs:$apm_xdg_data_dir" ;;
+        esac
+
+        printf 'XDG_DATA_DIRS=%s\n' "$xdg_data_dirs"
+      '';
 
     programs.nix-ld.enable = lib.mkDefault true;
 
