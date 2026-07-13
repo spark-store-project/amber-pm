@@ -141,16 +141,44 @@ for pkg_dir in "$APM_BASE_DIR"/*/; do
     fi
 
     # 检查是否有文件需要更新（比较源文件和目标文件）
-    NEED_UPDATE=false
-    while IFS= read -r -d '' file; do
-        rel_path="${file#$OVERRIDE_SOURCE/}"
-        target_file="$target_dir/$rel_path"
-        # 如果目标文件不存在或源文件更新，则需要更新
-        if [ ! -e "$target_file" ] || [ "$file" -nt "$target_file" ]; then
+NEED_UPDATE=false
+while IFS= read -r -d '' file; do
+    rel_path="${file#$OVERRIDE_SOURCE/}"
+    target_file="$target_dir/$rel_path"
+
+    # 1. 目标文件不存在 ⇒ 需要更新
+    if [ ! -e "$target_file" ]; then
+        NEED_UPDATE=true
+        break
+    fi
+
+    # 2. 先比较文件大小（快速排除明显不同）
+    if [ "$(stat -c%s "$file")" -ne "$(stat -c%s "$target_file")" ]; then
+        NEED_UPDATE=true
+        break
+    fi
+
+    # 3. 再比较哈希值（选择系统中可用的哈希工具）
+    if command -v md5sum >/dev/null 2>&1; then
+        hash_cmd="md5sum"
+    elif command -v sha256sum >/dev/null 2>&1; then
+        hash_cmd="sha256sum"
+    else
+        # 若两者都不可用，退化为直接二进制比较（较慢，但确保正确）
+        if ! cmp -s "$file" "$target_file"; then
             NEED_UPDATE=true
             break
         fi
-    done < <(find "$OVERRIDE_SOURCE" -type f -print0 2>/dev/null)
+        continue
+    fi
+
+    source_hash=$($hash_cmd "$file" | awk '{print $1}')
+    target_hash=$($hash_cmd "$target_file" | awk '{print $1}')
+    if [ "$source_hash" != "$target_hash" ]; then
+        NEED_UPDATE=true
+        break
+    fi
+done < <(find "$OVERRIDE_SOURCE" -type f -print0 2>/dev/null)
 
     # 如果没有需要更新的文件，跳过
     if [ "$NEED_UPDATE" = false ]; then
