@@ -55,6 +55,46 @@ if [ "${APM_USE_SANDBOX:-0}" = "1" ]; then
     ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir MUSIC))
 fi
 
+# ===============================
+# PipeWire 客户端运行文件（主机集成）
+# APM 的基础环境里通常只有 libpipewire 运行库（由 ffmpeg 等依赖带入），
+# 但 Debian 系发行版把客户端配置 client.conf 放在 pipewire-bin 包里，
+# 把 protocol-native 等客户端模块放在 libpipewire-0.3-modules 包里。
+# 两者缺失时 pw_context_new() 会直接失败（报 can't load config client.conf），
+# 依赖 PipeWire 的应用（Wayland 下的屏幕共享/录屏，如腾讯会议）就会在请求
+# xdg-desktop-portal 之前中断，表现为“点共享屏幕没反应 / Portal 授权对话框不弹出”。
+# 主机 PipeWire 的 socket 已经通过 --dev-bind /run 暴露进来，
+# 这里在容器缺少客户端运行文件时借用主机的（/host 为宿主机根目录）。
+# ===============================
+needs_host_pipewire() {
+    local d
+    # 容器内已有自己的 client.conf 与客户端模块时无需插手
+    [ -d "${chrootEnvPath}/usr/share/pipewire" ] || return 0
+    for d in "${chrootEnvPath}"/usr/lib/*-linux-gnu/pipewire-0.3 "${chrootEnvPath}"/usr/lib64/pipewire-0.3 "${chrootEnvPath}"/usr/lib/pipewire-0.3; do
+        [ -d "$d" ] && return 1
+    done
+    return 0
+}
+
+PIPEWIRE_HOST_ENV_VARS=()
+if needs_host_pipewire; then
+    if [ -f /usr/share/pipewire/client.conf ]; then
+        PIPEWIRE_HOST_ENV_VARS+=("PIPEWIRE_CONFIG_DIR /host/usr/share/pipewire")
+    fi
+    for d in /usr/lib/*-linux-gnu/pipewire-0.3 /usr/lib64/pipewire-0.3 /usr/lib/pipewire-0.3; do
+        if [ -d "$d" ]; then
+            PIPEWIRE_HOST_ENV_VARS+=("PIPEWIRE_MODULE_DIR /host$d")
+            break
+        fi
+    done
+    for d in /usr/lib/*-linux-gnu/spa-0.2 /usr/lib64/spa-0.2 /usr/lib/spa-0.2; do
+        if [ -d "$d" ]; then
+            PIPEWIRE_HOST_ENV_VARS+=("SPA_PLUGIN_DIR /host$d")
+            break
+        fi
+    done
+fi
+
 if [ $# -eq 0 ]; then
     container_command="bash"
 else
@@ -122,6 +162,11 @@ ENV_VARS=(
     "XDG_DATA_DIRS /amber-ce-tools/additional-data-dir-in-container:\$XDG_DATA_DIRS"
     "XCURSOR_PATH /host/usr/share/icons:/host/usr/share/cursors:/usr/share/icons:/usr/share/cursors:\$XCURSOR_PATH"
 )
+
+# 主机 PipeWire 客户端运行文件（仅在容器内缺失时添加）
+if [ ${#PIPEWIRE_HOST_ENV_VARS[@]} -gt 0 ]; then
+    ENV_VARS+=("${PIPEWIRE_HOST_ENV_VARS[@]}")
+fi
 
 # 基础绑定目录（始终绑定）
 BASE_BIND_DIRS=(
