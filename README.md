@@ -59,6 +59,25 @@ Commands:
 ### 完整命令列表
 使用 `apm --help-all` 查看完整的命令列表，包括高级命令如 `sandbox-run`、`bwrap-run`、`hold`、`unhold`、`full-upgrade`、`download`、`ssinstall`、`ssaudit`、`debug` 等。
 
+### 运行命令与参数传递
+
+`apm run <包名> <命令> [参数...]` 的每个参数都会**原样**传给容器内的命令：空格、引号、`$`、反引号、反斜杠、换行都按字面值处理，不会被 APM 重新展开。因此参数里有特殊字符时，按 shell 的常规规则引用即可：
+
+```bash
+apm run amber-pm-trixie /usr/bin/python3 -c 'print("a b")'
+apm run <包名> /path/to/app "/home/user/我的 文件.txt"
+```
+
+需要管道、重定向、shell 内建命令等语法时，显式调用容器内的 bash：
+
+```bash
+apm run <包名> bash -c 'ls / | head -n 5'
+```
+
+`apm run <包名>` 不带命令时会转去调用 `apm launch`。命令的退出码会原样作为 `apm` 的退出码返回。
+
+同一软件包的多个实例共享同一个容器根文件系统（例如重复点击应用图标、或上一个实例还没退出时再次启动）：第二个实例会直接复用已有挂载，不会重复挂载或互相卸载，容器内的写入对彼此可见；最后一个实例退出时才卸载。直接对 base 包（如 `apm run amber-pm-trixie /bin/bash`）执行命令时，写入只会落在临时可写层，退出后丢弃。
+
 ## NixOS 构建与本地测试
 
 NixOS 本地构建、安装、module 使用以及 NUR/nixpkgs 打包复用说明见 [docs/NIXOS.md](docs/NIXOS.md)。
@@ -110,6 +129,14 @@ NixOS 本地构建、安装、module 使用以及 NUR/nixpkgs 打包复用说明
 > 1.1.5+ 版本支持了覆盖 base 功能，相见 https://gitee.com/amber-ce/amber-pm/blob/master/Packaging-demo/README.md#info_layer_override-%E6%96%87%E4%BB%B6
 >
 > 1.3.0+ 版本支持了 addons 层功能，相见 https://gitee.com/amber-ce/amber-pm/blob/master/Packaging-demo/README.md#info_layer_addons--info_layer_addonsdaddons-%E5%B1%82
+
+## 测试
+
+参数传递（引号/空格/特殊字符）、退出码与 overlay 挂载流程的回归测试，不需要 root，也不需要真实的 bwrap/fuse-overlayfs：
+
+```bash
+bash tests/run-quoting-test.sh
+```
 
 ## APM 构建 Tips
 

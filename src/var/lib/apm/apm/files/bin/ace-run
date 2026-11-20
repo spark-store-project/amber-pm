@@ -1,160 +1,69 @@
 #!/bin/bash
-### 这个工具是用来启动apm内置ACE环境的，不是用来打开应用的
-bash(){
-/usr/bin/bash --rcfile <(cat ~/.bashrc; echo "PS1=\"\[\e[37;40m\][\[\e[32;40m\]\u\[\e[37;40m\]@Amber-PM \[\e[36;40m\]\w\[\e[0m\]]\\\$ \"") $@
-}
-export -f bash
+# =============================================================================
+# bin/ace-run —— 进入 APM 自身的基础环境（amber-pm-debug / `apm debug` 使用）。
+#
+# 注意：这个工具用来打开 APM 内置的 ACE 环境，不是用来启动普通应用的。
+# 包名从脚本路径推导（/var/lib/apm/<包名>/files/bin/ace-run），也可以用
+# ACE_PACKAGE_NAME 显式指定。
+#
+# 命令行参数原样传给容器内的命令（转义逻辑见 ace-run-lib.sh）。
+# =============================================================================
 
-curdir=`realpath $0`
-parent_dir=`dirname $curdir`
-pparent_dir=`dirname $parent_dir`
-ppparent_dir=`dirname $pparent_dir`
-PKGNAME=`basename $ppparent_dir`
-export ACE_PACKAGE_NAME=$PKGNAME
+# --- 定位并加载公共库 --------------------------------------------------------
+_ace_script="$(readlink -f -- "${BASH_SOURCE[0]}")"
+_ace_dir="$(dirname -- "$_ace_script")"
+while [ "$_ace_dir" != "/" ] && [ ! -r "$_ace_dir/ace-run-lib.sh" ]; do
+    _ace_dir="$(dirname -- "$_ace_dir")"
+done
+if [ ! -r "$_ace_dir/ace-run-lib.sh" ]; then
+    echo "ace-run: 找不到 ace-run-lib.sh，APM 安装可能不完整" >&2
+    exit 1
+fi
+# shellcheck source=ace-run-lib.sh
+. "$_ace_dir/ace-run-lib.sh"
 
-chrootEnvPath=/var/lib/apm/$PKGNAME/files/ace-env
+# 脚本位于 /var/lib/apm/<包名>/files/bin/ace-run，往上三层就是包目录
+_ace_pkg_dir="$(dirname -- "$(dirname -- "$(dirname -- "$_ace_script")")")"
+ACE_PACKAGE_NAME="${ACE_PACKAGE_NAME:-$(basename -- "$_ace_pkg_dir")}"
+export ACE_PACKAGE_NAME
 
-is_nixos() {
-    [ -f /etc/os-release ] && grep -Eq '^ID="?nixos"?$' /etc/os-release
-}
+chrootEnvPath="${chrootEnvPath:-/var/lib/apm/${ACE_PACKAGE_NAME}/files/ace-env}"
+HOME="$(ace_home)"
+export HOME
 
-APM_CONTAINER_PATH="/amber-ce-tools/bin-override:$PATH"
-if is_nixos; then
-    APM_CONTAINER_PATH="/amber-ce-tools/bin-override:/usr/local/bin:/usr/bin/"
+if [ ! -d "$chrootEnvPath" ]; then
+    ace_warn "容器根目录不存在：$chrootEnvPath"
+    exit 1
 fi
 
-# if [ ! -e $chrootEnvPath/finish.flag ];then
+uid="$(ace_runtime_uid)"
+container_path="$(ace_container_path)"
 
-# if [ "$(id -u)" = "0" ]; then
-#     `dirname $chrootEnvPath`/bin/ace-init
-# else
-# pkexec `dirname $chrootEnvPath`/bin/ace-init
-# fi
-# Ubuntu 26.04 中断了我们配置容器
-#fi
-non_root_user=$(who  | awk '{print $1}' | head -n 1)
-uid=$(id -u $non_root_user)
-
-
-#### This part is for args pharm
-if [ "$1" = "" ];then
-container_command="bash"
-else
-container_command="$1"
-shift
-for arg in "$@"; do
-        arg="$(echo "${arg}x" | sed 's|'\''|'\'\\\\\'\''|g')"
-        arg="${arg%x}"
-        container_command="${container_command} '${arg}'"
-done
-fi
-#########################################################################################
-##########合成bwrap 1. 基础函数配置段
-# 初始化 EXEC_COMMAND 为 bwrap 基础指令
-EXEC_COMMAND="bwrap --dev-bind / /"
-
-# add_command 函数定义
-function add_command() {
-    # 参数拼接，考虑到转义和空格的处理
-    for arg in "$@"; do
-        EXEC_COMMAND="${EXEC_COMMAND} ${arg}"
-    done
-}
-
-function add_env_var() {
-    local var_name="${1}"
-    local var_value="${2}"
-    if [ "$var_value" != "" ]; then    
-	add_command "--setenv $var_name $var_value"
-	
-    fi
-}
-##########合成bwrap 2. 特殊需求函数配置段
-function cursor_theme_dir_integration() {
-
-local directory=""
-if [ "$(id -u)" = "0" ]; then #####We don't want bother root to install themes,but will try to fix the unwriteable issue
-	mkdir -p $chrootEnvPath/usr/share/icons
-	chmod 777 -R $chrootEnvPath/usr/share/icons
-	return
-fi
-
-for directory in "/usr/share/icons"/*; do
-    # 检查是否为目录
-    if [ -d "$directory" ]; then
-        # 检查目录中是否存在 cursors 文件
-        if [ -d "$directory/cursors" ]; then
-        	if [ -w $chrootEnvPath/usr/share/icons ];then
-			add_command "--ro-bind-try $directory $directory"
-		fi
-        fi
-    fi
-done
-
-
-
-
-
-
-
-}
-##########合成bwrap 3. 环境变量和目录绑定配置段
-# 添加环境变量和其他初始设置
-ENV_VARS=(
-    "FAKEROOTDONTTRYCHOWN 1"
-    "PULSE_SERVER /run/user/\$uid/pulse/native"
-    "PATH $APM_CONTAINER_PATH"
-    "IS_ACE_ENV 1"
-    "IS_APM_ENV 1"
-    "XDG_DATA_DIRS /amber-ce-tools/additional-data-dir-in-container:\$XDG_DATA_DIRS"
+ACE_BWRAP_SETENV=(
+    --setenv FAKEROOTDONTTRYCHOWN 1
+    --setenv PULSE_SERVER "/run/user/${uid}/pulse/native"
+    --setenv PATH "$container_path"
+    --setenv IS_ACE_ENV 1
+    --setenv IS_APM_ENV 1
+    --setenv XDG_DATA_DIRS "/amber-ce-tools/additional-data-dir-in-container:${XDG_DATA_DIRS:-}"
 )
 
-BIND_DIRS=(
-    "--dev-bind $chrootEnvPath/ /"
-    "--dev-bind-try /media /media"
-    "--dev-bind-try /mnt /mnt"
-    "--dev-bind-try /tmp /tmp"
-    "--dev-bind-try /data /data"
-    "--dev-bind-try /dev /dev"
-    "--proc /proc"
-    "--dev-bind /sys /sys"
-    "--dev-bind /run /run"
-    "--dev-bind-try /run/user/\$uid/pulse /run/user/\$uid/pulse"
-    "--dev-bind / /host"
-    "--dev-bind-try /etc/resolv.conf /etc/resolv.conf"
-    "--dev-bind-try /home /home"
-)
-EXTRA_ARGS=(
-#    "--cap-add CAP_SYS_ADMIN"
-)
-
-EXTRA_SCRIPTS=(
-#    cursor_theme_dir_integration
+ACE_BWRAP_BINDS=(
+    --dev-bind "${chrootEnvPath%/}/" /
+    --dev-bind-try /media /media
+    --dev-bind-try /root /root
+    --dev-bind-try /www /www
+    --dev-bind-try /mnt /mnt
+    --dev-bind-try /tmp /tmp
+    --dev-bind-try /data /data
+    --dev-bind-try /dev /dev
+    --proc /proc
+    --dev-bind /sys /sys
+    --dev-bind /run /run
+    --dev-bind-try "/run/user/${uid}/pulse" "/run/user/${uid}/pulse"
+    --dev-bind / /host
+    --dev-bind-try /etc/resolv.conf /etc/resolv.conf
+    --dev-bind-try /home /home
 )
 
-##########合成bwrap 4. 合成并执行指令
-# 逐一添加到 EXEC_COMMAND
-for var in "${ENV_VARS[@]}"; do
-    add_env_var $var
-done
-
-for var in "${BIND_DIRS[@]}"; do
-    add_command "$var"
-done
-
-for var in "${EXTRA_ARGS[@]}"; do
-    add_command "$var"
-done
-
-for var in "${EXTRA_SCRIPTS[@]}"; do
-    $var
-done
-
-# 添加最终的 bash 命令
-add_command "bash -c \"${container_command}\""
-
-# 输出完整的 EXEC_COMMAND 以查看
-# echo "${EXEC_COMMAND}"
-
-# 注意: 实际执行时，请确保所有变量（如 $uid, $chrootEnvPath 等）都已正确定义
-eval ${EXEC_COMMAND}
+ace_run_container "$@"

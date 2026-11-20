@@ -1,62 +1,72 @@
 #!/bin/bash
+# =============================================================================
+# ace-run —— `apm run` 进入应用容器的入口。
+#
+# 由 /usr/libexec/apm/apm-main 以 chrootEnvPath=<overlay 挂载点> 调用，
+# 也可以直接执行（此时 chrootEnvPath 默认为脚本旁边的 ace-env）。
+#
+# 可覆盖的环境变量：
+#   chrootEnvPath    容器根目录（overlay 挂载点或 ace-env 目录）
+#   APM_PKG_NAME     当前包名，默认 apm-general
+#   APM_USE_SANDBOX  为 1 时把 $HOME 沙箱化到 ~/.apm/<包名>
+#
+# 命令行参数原样传给容器内的命令：空格、引号、$、反引号、反斜杠、换行都会被
+# 完整保留（参数拼装与转义逻辑见 ace-run-lib.sh）。
+# =============================================================================
 
-function bash(){
-/usr/bin/bash --rcfile <(cat ~/.bashrc; echo "PS1=\"\[\e[37;40m\][\[\e[32;40m\]\u\[\e[37;40m\]@Amber-PM \[\e[36;40m\]\w\[\e[0m\]]\\\$ \"") $@
-}
-export -f bash
-function ensure_dir() {
-    local dir="$1"
-    
-    # 检查目录是否为空
-    if [ -z "$dir" ]; then
-        echo "错误: 目录路径不能为空"
-        return 1
-    fi
-    
-    # 检查目录是否存在
-    if [ ! -d "$dir" ]; then
-        echo "目录 '$dir' 不存在，正在创建..."
-        if mkdir -p "$dir"; then
-            echo "成功创建目录 '$dir'"
-            return 0
-        else
-            echo "错误: 无法创建目录 '$dir'"
-            return 1
-        fi
-    else
-        return 0
-    fi
-}
-
-chrootEnvPath="${chrootEnvPath:-$(dirname $0)/ace-env}"
-
-is_nixos() {
-    [ -f /etc/os-release ] && grep -Eq '^ID="?nixos"?$' /etc/os-release
-}
-
-APM_CONTAINER_PATH="/amber-ce-tools/bin-override:$PATH"
-if is_nixos; then
-    APM_CONTAINER_PATH="/amber-ce-tools/bin-override:/usr/local/bin:/usr/bin/"
+# --- 定位并加载公共库（通过 /usr/bin 软链接调用时也能正确解析） --------------
+_ace_script="$(readlink -f -- "${BASH_SOURCE[0]}")"
+_ace_dir="$(dirname -- "$_ace_script")"
+while [ "$_ace_dir" != "/" ] && [ ! -r "$_ace_dir/ace-run-lib.sh" ]; do
+    _ace_dir="$(dirname -- "$_ace_dir")"
+done
+if [ ! -r "$_ace_dir/ace-run-lib.sh" ]; then
+    echo "ace-run: 找不到 ace-run-lib.sh，APM 安装可能不完整" >&2
+    exit 1
 fi
+# shellcheck source=ace-run-lib.sh
+. "$_ace_dir/ace-run-lib.sh"
 
+chrootEnvPath="${chrootEnvPath:-$_ace_dir/ace-env}"
 APM_PKG_NAME="${APM_PKG_NAME:-apm-general}"
+HOME="$(ace_home)"
+export HOME
 
-non_root_user=$(who  | awk '{print $1}' | head -n 1)
-uid=$(id -u $non_root_user)
-ensure_dir $HOME/.apm/${APM_PKG_NAME}/
-
-# 根据沙盒模式决定是否创建其他目录
-if [ "${APM_USE_SANDBOX:-0}" = "1" ]; then
-    ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DESKTOP))
-    ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DOCUMENTS))
-    ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir PICTURES))
-    ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir DOWNLOAD))
-    ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir VIDEOS))
-    ensure_dir $HOME/.apm/${APM_PKG_NAME}/$(basename $(xdg-user-dir MUSIC))
+if [ ! -d "$chrootEnvPath" ]; then
+    ace_warn "容器根目录不存在：$chrootEnvPath"
+    exit 1
 fi
 
-# ===============================
-# PipeWire 客户端运行文件（主机集成）
+uid="$(ace_runtime_uid)"
+container_path="$(ace_container_path)"
+
+# --- 家目录下应用可写的目录 --------------------------------------------------
+ace_ensure_dir "$HOME/.apm/${APM_PKG_NAME}" || true
+
+# 沙盒模式下，桌面/文档等目录需要先在沙箱里建好，再把主机目录挂进去
+XDG_DIR_NAMES=(DESKTOP DOCUMENTS PICTURES DOWNLOAD VIDEOS MUSIC)
+sandbox_xdg_dirs=()
+if [ "${APM_USE_SANDBOX:-0}" = "1" ]; then
+    for _xdg_name in "${XDG_DIR_NAMES[@]}"; do
+        _xdg_path="$(xdg-user-dir "$_xdg_name" 2>/dev/null)" || continue
+        [ -n "$_xdg_path" ] || continue
+        ace_ensure_dir "$HOME/.apm/${APM_PKG_NAME}/$(basename -- "$_xdg_path")" || true
+        sandbox_xdg_dirs+=("$_xdg_path")
+    done
+fi
+
+# --- 环境变量 ----------------------------------------------------------------
+ACE_BWRAP_SETENV=(
+    --setenv FAKEROOTDONTTRYCHOWN 1
+    --setenv PULSE_SERVER "/run/user/${uid}/pulse/native"
+    --setenv PATH "$container_path"
+    --setenv IS_ACE_ENV 1
+    --setenv GTK_USE_PORTAL 1
+    --setenv XDG_DATA_DIRS "/amber-ce-tools/additional-data-dir-in-container:${XDG_DATA_DIRS:-}"
+    --setenv XCURSOR_PATH "/host/usr/share/icons:/host/usr/share/cursors:/usr/share/icons:/usr/share/cursors:${XCURSOR_PATH:-}"
+)
+
+# --- 主机 PipeWire 客户端运行文件（Wayland 屏幕共享需要） ---------------------
 # APM 的基础环境里通常只有 libpipewire 运行库（由 ffmpeg 等依赖带入），
 # 但 Debian 系发行版把客户端配置 client.conf 放在 pipewire-bin 包里，
 # 把 protocol-native 等客户端模块放在 libpipewire-0.3-modules 包里。
@@ -65,195 +75,65 @@ fi
 # xdg-desktop-portal 之前中断，表现为“点共享屏幕没反应 / Portal 授权对话框不弹出”。
 # 主机 PipeWire 的 socket 已经通过 --dev-bind /run 暴露进来，
 # 这里在容器缺少客户端运行文件时借用主机的（/host 为宿主机根目录）。
-# ===============================
-needs_host_pipewire() {
+_ace_needs_host_pipewire() {
     local d
-    # 容器内已有自己的 client.conf 与客户端模块时无需插手
-    [ -d "${chrootEnvPath}/usr/share/pipewire" ] || return 0
-    for d in "${chrootEnvPath}"/usr/lib/*-linux-gnu/pipewire-0.3 "${chrootEnvPath}"/usr/lib64/pipewire-0.3 "${chrootEnvPath}"/usr/lib/pipewire-0.3; do
+    # 容器内没有 PipeWire 的配置/模块时不需要借用主机文件
+    [ -d "${chrootEnvPath}/usr/share/pipewire" ] || return 1
+    # 容器已有自己的客户端模块时保持原样
+    for d in "${chrootEnvPath}"/usr/lib/*-linux-gnu/pipewire-0.3 \
+             "${chrootEnvPath}"/usr/lib64/pipewire-0.3 \
+             "${chrootEnvPath}"/usr/lib/pipewire-0.3; do
         [ -d "$d" ] && return 1
     done
     return 0
 }
 
-PIPEWIRE_HOST_ENV_VARS=()
-if needs_host_pipewire; then
+if _ace_needs_host_pipewire; then
     if [ -f /usr/share/pipewire/client.conf ]; then
-        PIPEWIRE_HOST_ENV_VARS+=("PIPEWIRE_CONFIG_DIR /host/usr/share/pipewire")
+        ACE_BWRAP_SETENV+=(--setenv PIPEWIRE_CONFIG_DIR /host/usr/share/pipewire)
     fi
     for d in /usr/lib/*-linux-gnu/pipewire-0.3 /usr/lib64/pipewire-0.3 /usr/lib/pipewire-0.3; do
         if [ -d "$d" ]; then
-            PIPEWIRE_HOST_ENV_VARS+=("PIPEWIRE_MODULE_DIR /host$d")
+            ACE_BWRAP_SETENV+=(--setenv PIPEWIRE_MODULE_DIR "/host$d")
             break
         fi
     done
     for d in /usr/lib/*-linux-gnu/spa-0.2 /usr/lib64/spa-0.2 /usr/lib/spa-0.2; do
         if [ -d "$d" ]; then
-            PIPEWIRE_HOST_ENV_VARS+=("SPA_PLUGIN_DIR /host$d")
+            ACE_BWRAP_SETENV+=(--setenv SPA_PLUGIN_DIR "/host$d")
             break
         fi
     done
 fi
 
-if [ $# -eq 0 ]; then
-    container_command="bash"
-else
-    # 正确转义所有参数，处理空格和特殊字符
-    container_command=""
-    for arg in "$@"; do
-        # 使用 printf %q 进行安全的 shell 转义
-        escaped_arg="$(printf "%q" "$arg")"
-        container_command="${container_command} ${escaped_arg}"
-    done
-    container_command="${container_command# }"  # 移除开头的空格
-fi
-
-#########################################################################################
-##########合成bwrap 1. 基础函数配置段
-# 初始化 EXEC_COMMAND 为 bwrap 基础指令
-EXEC_COMMAND="bwrap --dev-bind / / "
-
-# add_command 函数定义
-function add_command() {
-    # 参数拼接，考虑到转义和空格的处理
-    for arg in "$@"; do
-        EXEC_COMMAND="${EXEC_COMMAND} ${arg}"
-    done
-}
-
-function add_env_var() {
-    local var_name="${1}"
-    local var_value="${2}"
-    if [ "$var_value" != "" ]; then    
-	add_command "--setenv $var_name $var_value"
-	
-    fi
-}
-##########合成bwrap 2. 特殊需求函数配置段
-function cursor_theme_dir_integration() {
-
-local directory=""
-if [ "$(id -u)" = "0" ]; then #####We don't want bother root to install themes,but will try to fix the unwriteable issue
-	mkdir -p $chrootEnvPath/usr/share/icons
-	chmod 777 -R $chrootEnvPath/usr/share/icons
-	return
-fi
-
-for directory in "/usr/share/icons"/*; do
-    # 检查是否为目录
-    if [ -d "$directory" ]; then
-        # 检查目录中是否存在 cursors 文件
-        if [ -d "$directory/cursors" ]; then
-        	if [ -w $chrootEnvPath/usr/share/icons ];then
-			add_command "--ro-bind-try $directory $directory"
-		fi
-        fi
-    fi
-done
-}
-##########合成bwrap 3. 环境变量和目录绑定配置段
-# 添加环境变量和其他初始设置
-ENV_VARS=(
-    "FAKEROOTDONTTRYCHOWN 1"
-    "PULSE_SERVER /run/user/\$uid/pulse/native"
-    "PATH $APM_CONTAINER_PATH"
-    "IS_ACE_ENV 1"
-    "GTK_USE_PORTAL 1"
-    "XDG_DATA_DIRS /amber-ce-tools/additional-data-dir-in-container:\$XDG_DATA_DIRS"
-    "XCURSOR_PATH /host/usr/share/icons:/host/usr/share/cursors:/usr/share/icons:/usr/share/cursors:\$XCURSOR_PATH"
+# --- 目录绑定 ----------------------------------------------------------------
+ACE_BWRAP_BINDS=(
+    --dev-bind "${chrootEnvPath%/}/" /
+    --dev-bind-try /media /media
+    --dev-bind-try /mnt /mnt
+    --dev-bind-try /tmp /tmp
+    --dev-bind-try /data /data
+    --dev-bind-try /dev /dev
+    --proc /proc
+    --dev-bind /sys /sys
+    --dev-bind /run /run
+    --dev-bind-try "/run/user/${uid}/pulse" "/run/user/${uid}/pulse"
+    --dev-bind / /host
+    --dev-bind-try /etc/resolv.conf /etc/resolv.conf
+    --dev-bind-try /usr/share/icons /usr/local/share/icons
+    --dev-bind-try /usr/share/fonts /usr/local/share/fonts
+    --dev-bind-try /usr/share/themes /usr/share/themes
+    --dev-bind-try /home /home
+    --dev-bind-try "$HOME/.apm/${APM_PKG_NAME}/.deepinwine" "$HOME/.deepinwine"
 )
 
-# 主机 PipeWire 客户端运行文件（仅在容器内缺失时添加）
-if [ ${#PIPEWIRE_HOST_ENV_VARS[@]} -gt 0 ]; then
-    ENV_VARS+=("${PIPEWIRE_HOST_ENV_VARS[@]}")
-fi
-
-# 基础绑定目录（始终绑定）
-BASE_BIND_DIRS=(
-    "--dev-bind $chrootEnvPath/ /"
-    "--dev-bind-try /media /media"
-    "--dev-bind-try /mnt /mnt"
-    "--dev-bind-try /tmp /tmp"
-    "--dev-bind-try /data /data"
-    "--dev-bind-try /dev /dev"
-    "--proc /proc"
-    "--dev-bind /sys /sys"
-    "--dev-bind /run /run"
-    "--dev-bind-try /run/user/\$uid/pulse /run/user/\$uid/pulse"
-    "--dev-bind / /host"
-    "--dev-bind-try /etc/resolv.conf /etc/resolv.conf"
-    "--dev-bind-try /usr/share/icons /usr/local/share/icons"
-    "--dev-bind-try /usr/share/fonts /usr/local/share/fonts"
-    "--dev-bind-try /usr/share/themes /usr/share/themes"
-    "--dev-bind-try /home /home"
-    "--dev-bind-try $HOME/.apm/${APM_PKG_NAME}/.deepinwine $HOME/.deepinwine"
-)
-
-# 沙盒模式下的额外绑定目录
-SANDBOX_BIND_DIRS=(
-    "--dev-bind-try $HOME/.apm/${APM_PKG_NAME}/ $HOME/"
-    "--dev-bind-try $(xdg-user-dir DESKTOP) $(xdg-user-dir DESKTOP)"
-    "--dev-bind-try $(xdg-user-dir DOCUMENTS) $(xdg-user-dir DOCUMENTS)"
-    "--dev-bind-try $(xdg-user-dir PICTURES) $(xdg-user-dir PICTURES)"
-    "--dev-bind-try $(xdg-user-dir DOWNLOAD) $(xdg-user-dir DOWNLOAD)"
-    "--dev-bind-try $(xdg-user-dir VIDEOS) $(xdg-user-dir VIDEOS)"
-    "--dev-bind-try $(xdg-user-dir MUSIC) $(xdg-user-dir MUSIC)"
-)
-
-# 非沙盒模式下的绑定目录（只绑定.deepinwine）
-NON_SANDBOX_BIND_DIRS=(
-    "--dev-bind-try $HOME/.deepinwine $HOME/.deepinwine"
-)
-
-# 根据 APM_USE_BWRAP 决定是否添加 CAP_SYS_ADMIN
-# 为修复Steam问题，强制都不加
-EXTRA_ARGS=()
-#if [ "${APM_USE_BWRAP:-0}" != "1" ]; then
-#    EXTRA_ARGS=(
-#        "--cap-add CAP_SYS_ADMIN"
-#    )
-#fi
-
-EXTRA_SCRIPTS=(
-#    cursor_theme_dir_integration
-)
-
-##########合成bwrap 4. 合成并执行指令
-# 逐一添加到 EXEC_COMMAND
-for var in "${ENV_VARS[@]}"; do
-    add_env_var $var
-done
-
-# 添加基础绑定目录
-for var in "${BASE_BIND_DIRS[@]}"; do
-    add_command "$var"
-done
-
-# 根据沙盒模式添加不同的绑定目录
 if [ "${APM_USE_SANDBOX:-0}" = "1" ]; then
-    for var in "${SANDBOX_BIND_DIRS[@]}"; do
-        add_command "$var"
+    ACE_BWRAP_BINDS+=(--dev-bind-try "$HOME/.apm/${APM_PKG_NAME}/" "$HOME/")
+    for _xdg_path in "${sandbox_xdg_dirs[@]}"; do
+        ACE_BWRAP_BINDS+=(--dev-bind-try "$_xdg_path" "$_xdg_path")
     done
 else
-    for var in "${NON_SANDBOX_BIND_DIRS[@]}"; do
-        add_command "$var"
-    done
+    ACE_BWRAP_BINDS+=(--dev-bind-try "$HOME/.deepinwine" "$HOME/.deepinwine")
 fi
 
-# 添加额外参数
-for var in "${EXTRA_ARGS[@]}"; do
-    add_command "$var"
-done
-
-for var in "${EXTRA_SCRIPTS[@]}"; do
-    $var
-done
-
-# 添加最终的 bash 命令
-add_command "bash -c \"${container_command}\""
-
-# 输出完整的 EXEC_COMMAND 以查看
-# echo "${EXEC_COMMAND}"
-
-# 注意: 实际执行时，请确保所有变量（如 $uid, $chrootEnvPath 等）都已正确定义
-eval "${EXEC_COMMAND}"
+ace_run_container "$@"

@@ -2,12 +2,19 @@
 VERSION=@VERSION@
 # 获取脚本名称用于帮助信息
 SCRIPT_NAME=$(basename "$0")
-PATH_PREFIX=/var/lib/apm/apm/files/ace-env/
+# APM 容器根目录。允许通过环境变量覆盖（测试 / 自定义安装位置），
+# 与 AGENTS.md 中关于 PATH_PREFIX 的说明保持一致。
+PATH_PREFIX="${PATH_PREFIX:-/var/lib/apm/apm/files/ace-env/}"
+PATH_PREFIX="${PATH_PREFIX%/}"
+# 进入容器执行命令的入口脚本
+APM_RUN_EXEC="${APM_RUN_EXEC:-/var/lib/apm/apm/files/ace-run}"
 
-log.warn() { echo -e "[\e[33mWARN\e[0m]:  \e[1m$*\e[0m"; }
-log.error()  { echo -e "[\e[31mERROR\e[0m]: \e[1m$*\e[0m"; }
-log.info() { echo -e "[\e[96mINFO\e[0m]:  \e[1m$*\e[0m"; }
-log.debug()  { echo -e "[\e[32mDEBUG\e[0m]: \e[1m$*\e[0m"; }
+# 日志统一写到 stderr：stdout 只留给命令本身的输出，
+# 这样 `apm run <包> <命令> > 文件` 或命令替换都不会被日志污染。
+log.warn()  { printf '[\033[33mWARN\033[0m]:  \033[1m%s\033[0m\n' "$*" >&2; }
+log.error() { printf '[\033[31mERROR\033[0m]: \033[1m%s\033[0m\n' "$*" >&2; }
+log.info()  { printf '[\033[96mINFO\033[0m]:  \033[1m%s\033[0m\n' "$*" >&2; }
+log.debug() { printf '[\033[32mDEBUG\033[0m]: \033[1m%s\033[0m\n' "$*" >&2; }
 
 # 帮助信息函数
 show_help() {
@@ -86,190 +93,495 @@ Commands:
 EOF
 }
 
+# =============================================================================
+# overlay 挂载管理
+#
+# 应用包（有 files/core）的 overlay 必须按“用户 + 包名”共享：同名包的多个实例
+# 要看到同一个根文件系统，否则会出现两个 fuse-overlayfs 同时写同一个 upperdir。
+# 旧实现用固定路径 /tmp/apm/<包名> 来共享，结果是第二个实例挂载必然失败（挂载点
+# 已被占用；用户看到的通常是 fuse-overlayfs 的一串报错），而且它退出时还会把
+# 第一个实例的挂载卸载掉。
+#
+# 现在的做法：
+#   * 挂载点固定在 $XDG_RUNTIME_DIR/apm-run/<包名>（没有 XDG_RUNTIME_DIR 时
+#     退回 /tmp/apm-run-<uid>）；
+#   * <挂载点>.users 记录正在使用它的 apm 进程 PID，作为引用计数；
+#   * 进入时若已经挂载就直接复用（不再报错），未挂载才挂载；
+#   * 退出时删掉自己的 PID，最后一个退出的实例负责卸载。
+# 于是“上一个进程还没结束又启动同名包”不会再触发挂载失败，命令照常执行。
+#
+# base 包（没有 files/core）没有需要共享的可写层，每次运行使用独立挂载点 +
+# 一次性可写层，跑完即丢弃。
+#
+# 这些状态都用全局变量：EXIT trap 在 apm_exec 返回之后才执行，那时已经读不到
+# 函数里的局部变量了。
+# =============================================================================
+_APM_OVERLAY_MOUNT_DIR=""
+_APM_OVERLAY_TEMP_DIR=""
+_APM_OVERLAY_SHARED=0
+_APM_OVERLAY_OWNED=0
+_APM_OVERLAY_USERS_FILE=""
+_APM_OVERLAY_LOCK_FILE=""
+_APM_OVERLAY_LOCK_FD=""
+_APM_OVERLAY_ACTIVE_USERS=()
+
+# 挂载点根目录：优先用户私有的 XDG_RUNTIME_DIR，否则用带 uid 的临时目录
+_apm_overlay_base_dir() {
+    local base
+    if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$XDG_RUNTIME_DIR" ] && [ -O "$XDG_RUNTIME_DIR" ]; then
+        base="$XDG_RUNTIME_DIR/apm-run"
+    else
+        base="${TMPDIR:-/tmp}/apm-run-$(id -u)"
+    fi
+    if ! mkdir -m 700 -- "$base" 2>/dev/null; then
+        [ -d "$base" ] || return 1
+    fi
+    [ -O "$base" ] || return 1
+    printf '%s\n' "$base"
+}
+
+# 挂载点是否真的可用。
+# fuse daemon 死掉后 mountpoint 仍为真、连挂载点根目录的 stat 都会成功，
+# 但真正读目录会得到 ENOTCONN，所以必须实际列一次目录。
+_apm_overlay_mounted() {
+    mountpoint -q -- "$1" 2>/dev/null || return 1
+    ls -A -- "$1" >/dev/null 2>&1
+}
+
+_apm_overlay_unmount() {
+    local dir="$1"
+    umount -- "$dir" 2>/dev/null && return 0
+    fusermount3 -u -- "$dir" 2>/dev/null && return 0
+    fusermount -u -- "$dir" 2>/dev/null && return 0
+    return 1
+}
+
+# 读取 users 文件，顺手丢掉已经退出的进程
+_apm_overlay_read_users() {
+    local users_file="$1"
+    local pid
+    _APM_OVERLAY_ACTIVE_USERS=()
+    [ -f "$users_file" ] || return 0
+    while IFS= read -r pid; do
+        [ -n "$pid" ] || continue
+        kill -0 "$pid" 2>/dev/null && _APM_OVERLAY_ACTIVE_USERS+=("$pid")
+    done < "$users_file"
+    return 0
+}
+
+_apm_overlay_write_users() {
+    local users_file="$1"
+    local pid
+    : > "$users_file" 2>/dev/null || return 1
+    for pid in "${_APM_OVERLAY_ACTIVE_USERS[@]}"; do
+        printf '%s\n' "$pid" >> "$users_file" 2>/dev/null
+    done
+    return 0
+}
+
+# 在独占锁保护下修改 users 文件。
+# 注意：持锁期间绝对不能再启动 fuse-overlayfs —— 它会继承锁 fd 并常驻，
+# daemon 活着锁就一直不释放，后续实例会永久阻塞。
+_apm_overlay_lock() {
+    local lock_file="$1"
+    local fd=""
+
+    if ! { exec {fd}>>"$lock_file"; } 2>/dev/null; then
+        return 1
+    fi
+    if ! flock -x "$fd" 2>/dev/null; then
+        exec {fd}>&-
+        return 1
+    fi
+    _APM_OVERLAY_LOCK_FD="$fd"
+    return 0
+}
+
+_apm_overlay_unlock() {
+    local fd="${_APM_OVERLAY_LOCK_FD:-}"
+    _APM_OVERLAY_LOCK_FD=""
+    [ -n "$fd" ] || return 0
+    eval "exec ${fd}>&-"
+    return 0
+}
+
+# 把当前进程从 users 文件里去掉
+_apm_overlay_unregister() {
+    local pid
+    local -a remaining=()
+
+    _apm_overlay_read_users "$_APM_OVERLAY_USERS_FILE"
+    for pid in "${_APM_OVERLAY_ACTIVE_USERS[@]}"; do
+        [ "$pid" = "$$" ] && continue
+        remaining+=("$pid")
+    done
+    _APM_OVERLAY_ACTIVE_USERS=("${remaining[@]}")
+    _apm_overlay_write_users "$_APM_OVERLAY_USERS_FILE"
+}
+
+# 加入某个包的共享 overlay：已挂载则复用，未挂载则挂载，并登记自己的 PID。
+# 返回 0 成功（_APM_OVERLAY_SHARED=1）；
+# 返回 1 表示共享机制不可用（调用方可以退回独占挂载点）；
+# 返回 2 表示挂载失败（真正的错误，无法执行）。
+_apm_overlay_acquire() {
+    local coredir="$1" lowerdir="$2" upper="$3" workdir="$4"
+    local base_dir mount_dir
+    local mounted=0
+    local rc=0
+
+    base_dir="$(_apm_overlay_base_dir)" || return 1
+    mount_dir="${base_dir}/${coredir}"
+    _APM_OVERLAY_USERS_FILE="${mount_dir}.users"
+    _APM_OVERLAY_LOCK_FILE="${mount_dir}.lock"
+
+    # 持锁：清理死挂载、登记自己是使用者
+    _apm_overlay_lock "$_APM_OVERLAY_LOCK_FILE" || return 1
+    _apm_overlay_read_users "$_APM_OVERLAY_USERS_FILE"
+    if _apm_overlay_mounted "$mount_dir"; then
+        mounted=1
+    elif mountpoint -q -- "$mount_dir" 2>/dev/null; then
+        # fuse daemon 已经死掉的残留挂载：先卸载
+        if ! _apm_overlay_unmount "$mount_dir"; then
+            log.error "Failed to clean up stale overlay mount: $mount_dir"
+            rc=2
+        fi
+    fi
+    if [ "$rc" = "0" ]; then
+        _APM_OVERLAY_ACTIVE_USERS+=("$$")
+        _apm_overlay_write_users "$_APM_OVERLAY_USERS_FILE" ||
+            log.warn "无法记录 overlay 使用者信息: $_APM_OVERLAY_USERS_FILE"
+    fi
+    _apm_overlay_unlock
+    [ "$rc" = "0" ] || return "$rc"
+
+    if [ "$mounted" = "1" ]; then
+        log.debug "Reusing existing overlay: $mount_dir"
+    else
+        # 挂载阶段不持锁：fuse-overlayfs 会继承当前打开的所有 fd 并常驻
+        mkdir -p -- "$mount_dir" 2>/dev/null
+        if fuse-overlayfs \
+            -o "lowerdir=${lowerdir},upperdir=${upper},workdir=${workdir}" \
+            "$mount_dir"; then
+            log.debug "Mounted overlay: $mount_dir"
+        elif _apm_overlay_mounted "$mount_dir"; then
+            # 并发竞态：另一个实例刚好挂上了
+            log.debug "Reusing existing overlay: $mount_dir"
+        else
+            log.error "Failed to mount overlayfs for package: $coredir"
+            rmdir -- "$mount_dir" 2>/dev/null
+            if _apm_overlay_lock "$_APM_OVERLAY_LOCK_FILE"; then
+                _apm_overlay_unregister
+                _apm_overlay_unlock
+            fi
+            return 2
+        fi
+    fi
+
+    _APM_OVERLAY_MOUNT_DIR="$mount_dir"
+    _APM_OVERLAY_SHARED=1
+    return 0
+}
+
+# 退出共享 overlay：把自己从 users 里去掉，最后一个使用者负责卸载
+_apm_overlay_release() {
+    local mount_dir="$_APM_OVERLAY_MOUNT_DIR"
+    local pid
+    local -a remaining=()
+
+    _APM_OVERLAY_MOUNT_DIR=""
+    [ -n "$mount_dir" ] || return 0
+    _apm_overlay_lock "$_APM_OVERLAY_LOCK_FILE" || return 0
+
+    _apm_overlay_read_users "$_APM_OVERLAY_USERS_FILE"
+    for pid in "${_APM_OVERLAY_ACTIVE_USERS[@]}"; do
+        [ "$pid" = "$$" ] && continue
+        remaining+=("$pid")
+    done
+    _APM_OVERLAY_ACTIVE_USERS=("${remaining[@]}")
+    _apm_overlay_write_users "$_APM_OVERLAY_USERS_FILE" || true
+
+    if [ ${#remaining[@]} -eq 0 ]; then
+        if mountpoint -q -- "$mount_dir" 2>/dev/null; then
+            _apm_overlay_unmount "$mount_dir" ||
+                log.warn "无法卸载 $mount_dir（应用可能仍在后台运行），挂载点已保留"
+        fi
+        if ! mountpoint -q -- "$mount_dir" 2>/dev/null; then
+            rmdir -- "$mount_dir" 2>/dev/null
+        fi
+    fi
+    _apm_overlay_unlock
+    return 0
+}
+
+_apm_overlay_cleanup() {
+    local unmounted=1
+
+    if [ "${_APM_OVERLAY_SHARED:-0}" = "1" ]; then
+        _apm_overlay_release
+    elif [ "${_APM_OVERLAY_OWNED:-0}" = "1" ]; then
+        if mountpoint -q -- "$_APM_OVERLAY_MOUNT_DIR" 2>/dev/null; then
+            if _apm_overlay_unmount "$_APM_OVERLAY_MOUNT_DIR"; then
+                : # 已卸载
+            else
+                unmounted=0
+                log.warn "无法卸载 $_APM_OVERLAY_MOUNT_DIR（应用可能仍在后台运行），已保留挂载点与临时目录"
+            fi
+        fi
+        if [ "$unmounted" = "1" ]; then
+            rmdir -- "$_APM_OVERLAY_MOUNT_DIR" 2>/dev/null
+        fi
+        _APM_OVERLAY_MOUNT_DIR=""
+    fi
+
+    if [ "$unmounted" = "1" ] && [ -n "$_APM_OVERLAY_TEMP_DIR" ]; then
+        rm -rf -- "$_APM_OVERLAY_TEMP_DIR"
+    fi
+    _APM_OVERLAY_TEMP_DIR=""
+    _APM_OVERLAY_SHARED=0
+    _APM_OVERLAY_OWNED=0
+    return 0
+}
+
+# =============================================================================
+# 在应用容器中执行命令
+#   $1     包名（决定 overlay 的上层与优先级）
+#   $2...  要执行的命令及其参数：原样传到容器内，不做任何字符串拼接
+#          （引号/空格/换行等安全处理见 ace-run-lib.sh）
+# =============================================================================
 apm_exec(){
-    # ===============================
-    # 基础变量
-    # ===============================
+    local coredir="$1"
+    shift
+
     local lowerdirs=()
     local env_layers=()
     local addon_envs=()
     local processed_addon_pkgs=()
     local current_dir="${PATH_PREFIX}/var/lib/apm/${coredir}"
-    local next_info_file=""
-    local APM_RUN_EXEC=/var/lib/apm/apm/files/ace-run
 
-    # ===============================
-    # 辅助函数：解析并添加某个包的 addons
-    # ===============================
-    _resolve_addons() {
+    _APM_OVERLAY_MOUNT_DIR=""
+    _APM_OVERLAY_TEMP_DIR=""
+    _APM_OVERLAY_SHARED=0
+    _APM_OVERLAY_OWNED=0
+    _APM_OVERLAY_USERS_FILE=""
+    _APM_OVERLAY_LOCK_FILE=""
+    _APM_OVERLAY_LOCK_FD=""
+    _APM_OVERLAY_ACTIVE_USERS=()
+    trap '_apm_overlay_cleanup' EXIT
+    trap '_apm_overlay_cleanup; exit 130' INT
+    trap '_apm_overlay_cleanup; exit 143' TERM HUP
+
+    # ---------------------------------------------------------------------
+    # 辅助函数：把某个包的层目录加入 lowerdir（自动去重）
+    # 返回 1 表示该包没有可用的层目录
+    # ---------------------------------------------------------------------
+    _apm_add_layer() {
         local pkgname="$1"
-        # 去重检查：每个包的 addons 只处理一次
-        for processed in "${processed_addon_pkgs[@]}"; do
-            [[ "$processed" == "$pkgname" ]] && return
+        local layer_dir
+        local existing
+
+        if [ -d "${PATH_PREFIX}/var/lib/apm/${pkgname}/files/ace-env" ]; then
+            layer_dir="${PATH_PREFIX}/var/lib/apm/${pkgname}/files/ace-env"
+        elif [ -d "${PATH_PREFIX}/var/lib/apm/${pkgname}/files/core" ]; then
+            layer_dir="${PATH_PREFIX}/var/lib/apm/${pkgname}/files/core"
+        else
+            return 1
+        fi
+
+        for existing in "${lowerdirs[@]}"; do
+            [ "$existing" = "$layer_dir" ] && return 0
+        done
+        lowerdirs+=("$layer_dir")
+        return 0
+    }
+
+    # ---------------------------------------------------------------------
+    # 辅助函数：解析并添加某个包的 addons 层
+    # ---------------------------------------------------------------------
+    _apm_resolve_addons() {
+        local pkgname="$1"
+        local pkg_dir="${PATH_PREFIX}/var/lib/apm/${pkgname}"
+        local addon_file
+        local addon_name
+        local addon
+        local -a addons=()
+
+        # 每个包的 addons 只处理一次
+        for addon in "${processed_addon_pkgs[@]}"; do
+            [ "$addon" = "$pkgname" ] && return 0
         done
         processed_addon_pkgs+=("$pkgname")
 
-        local pkg_dir="${PATH_PREFIX}/var/lib/apm/${pkgname}"
-        local all_addons=()
-
-        # 先读取 info_layer_addons.d 目录（.d 配置优先级更高）
-        if [[ -d "${pkg_dir}/info_layer_addons.d" ]]; then
-            local addon_file
-            for addon_file in $(ls -1 "${pkg_dir}/info_layer_addons.d" 2>/dev/null | sort); do
-                local addon_name="${addon_file#*-}"
-                [[ -z "$addon_name" ]] && continue
-                all_addons+=("$addon_name")
+        # 先读 info_layer_addons.d（优先级更高），文件名形如 10-xxx-addons
+        if [ -d "${pkg_dir}/info_layer_addons.d" ]; then
+            for addon_file in "${pkg_dir}/info_layer_addons.d"/*; do
+                [ -e "$addon_file" ] || continue
+                addon_name="${addon_file##*/}"
+                addon_name="${addon_name#*-}"
+                [ -n "$addon_name" ] && addons+=("$addon_name")
             done
         fi
 
-        # 再读取 info_layer_addons 主文件
-        if [[ -f "${pkg_dir}/info_layer_addons" ]]; then
-            local addon_name
+        # 再读 info_layer_addons 主文件
+        if [ -f "${pkg_dir}/info_layer_addons" ]; then
             while IFS= read -r addon_name; do
-                [[ -z "$addon_name" ]] && continue
-                all_addons+=("$addon_name")
+                [ -n "$addon_name" ] && addons+=("$addon_name")
             done < "${pkg_dir}/info_layer_addons"
         fi
 
-        local addon
-        for addon in "${all_addons[@]}"; do
-            # 在 lowerdirs 中去重
-            local dup=false
-            local existing
-            for existing in "${lowerdirs[@]}"; do
-                if [[ "$existing" == "${PATH_PREFIX}/var/lib/apm/${addon}/files/ace-env" ]] || \
-                   [[ "$existing" == "${PATH_PREFIX}/var/lib/apm/${addon}/files/core" ]]; then
-                    dup=true
-                    break
-                fi
-            done
-            [[ "$dup" == true ]] && continue
-
-            if [[ -d "${PATH_PREFIX}/var/lib/apm/${addon}/files/ace-env" ]]; then
-                lowerdirs+=("${PATH_PREFIX}/var/lib/apm/${addon}/files/ace-env")
-            elif [[ -d "${PATH_PREFIX}/var/lib/apm/${addon}/files/core" ]]; then
-                lowerdirs+=("${PATH_PREFIX}/var/lib/apm/${addon}/files/core")
-            else
+        for addon in "${addons[@]}"; do
+            # addons 叠加在 base 之上
+            if ! _apm_add_layer "$addon"; then
                 log.warn "Addon layer not found: $addon"
                 continue
             fi
-
-            if [[ -f "${PATH_PREFIX}/var/lib/apm/${addon}/info_env" ]]; then
+            if [ -f "${PATH_PREFIX}/var/lib/apm/${addon}/info_env" ]; then
                 addon_envs+=("${PATH_PREFIX}/var/lib/apm/${addon}/info_env")
             fi
         done
     }
 
-    # ===============================
+    # ---------------------------------------------------------------------
     # 递归读取 info / info_env / addons
-    # ===============================
+    # ---------------------------------------------------------------------
     while : ; do
-        next_info_file="${current_dir}/info"
+        local info_file="${current_dir}/info"
+        local pkgname
+        pkgname="$(basename -- "$current_dir")"
 
-        # 记录 info_env
-        if [[ -f "${current_dir}/info_env" ]]; then
+        # 记录 info_env（底层先记录，后面按顺序应用）
+        if [ -f "${current_dir}/info_env" ]; then
             env_layers+=("${current_dir}/info_env")
         fi
 
-        # 没有 info 也处理 addons（最底层 base 也可以有 addons），然后停止
-        if [[ ! -f "$next_info_file" ]]; then
-            local pkgname
-            pkgname="$(basename "$current_dir")"
-            _resolve_addons "$pkgname"
+        if [ ! -f "$info_file" ]; then
+            # 没有 info：当前包自己就是 base 层。先叠 addons，再把自己作为最底层。
+            # （旧版本在这里直接跳出，导致 `apm run <base 包> <命令>` 报
+            #   "No valid lower directories found"，纯 base 环境无法直接运行。）
+            _apm_resolve_addons "$pkgname"
+            if ! _apm_add_layer "$pkgname"; then
+                log.warn "Neither ace-env nor core directory found for base: $pkgname"
+            fi
             break
         fi
 
-        # 读取依赖层
+        # info 中列出的每一行都是一个依赖层
+        local basedir
         while IFS= read -r basedir; do
-            [[ -z "$basedir" ]] && continue
-
-            # 先处理该 base 的 addons（addons 在 base 之上）
-            _resolve_addons "$basedir"
-
-            if [[ -d "${PATH_PREFIX}/var/lib/apm/${basedir}/files/ace-env" ]]; then
-                lowerdirs+=("${PATH_PREFIX}/var/lib/apm/${basedir}/files/ace-env")
-            elif [[ -d "${PATH_PREFIX}/var/lib/apm/${basedir}/files/core" ]]; then
-                lowerdirs+=("${PATH_PREFIX}/var/lib/apm/${basedir}/files/core")
-            else
+            [ -n "$basedir" ] || continue
+            _apm_resolve_addons "$basedir"
+            if ! _apm_add_layer "$basedir"; then
                 log.warn "Neither ace-env nor core directory found for base: $basedir"
             fi
-        done < "$next_info_file"
+        done < "$info_file"
 
-        # 递归到下一个
+        # 继续沿最后一层往上递归
         local next_basedir
-        next_basedir="$(tail -n 1 "$next_info_file")"
-        [[ -z "$next_basedir" || ! -d "${PATH_PREFIX}/var/lib/apm/${next_basedir}" ]] && break
+        next_basedir="$(tail -n 1 "$info_file")"
+        if [ -z "$next_basedir" ] || [ ! -d "${PATH_PREFIX}/var/lib/apm/${next_basedir}" ]; then
+            break
+        fi
         current_dir="${PATH_PREFIX}/var/lib/apm/${next_basedir}"
     done
 
-    # ===============================
+    # ---------------------------------------------------------------------
     # info_layer_override（最高优先级）
-    # ===============================
+    # ---------------------------------------------------------------------
     local override_file="${PATH_PREFIX}/var/lib/apm/${coredir}/info_layer_override"
-    if [[ -f "$override_file" ]]; then
+    if [ -f "$override_file" ]; then
         log.debug "Found info_layer_override: $override_file"
 
-        local override_dirs=()
-        local override_envs=()
+        local override_dir
+        local override_base
+        local -a override_dirs=()
+        local -a override_envs=()
 
-        while IFS= read -r basedir; do
-            [[ -z "$basedir" ]] && continue
-            local base="${PATH_PREFIX}/var/lib/apm/${basedir}"
-
-            if [[ -d "${base}/files/ace-env" ]]; then
-                override_dirs+=("${base}/files/ace-env")
-            elif [[ -d "${base}/files/core" ]]; then
-                override_dirs+=("${base}/files/core")
+        while IFS= read -r override_dir; do
+            [ -n "$override_dir" ] || continue
+            override_base="${PATH_PREFIX}/var/lib/apm/${override_dir}"
+            if [ -d "${override_base}/files/ace-env" ]; then
+                override_dirs+=("${override_base}/files/ace-env")
+            elif [ -d "${override_base}/files/core" ]; then
+                override_dirs+=("${override_base}/files/core")
             else
-                log.warn "Override layer not found: $basedir"
+                log.warn "Override layer not found: $override_dir"
             fi
-
-            if [[ -f "${base}/info_env" ]]; then
-                override_envs+=("${base}/info_env")
+            if [ -f "${override_base}/info_env" ]; then
+                override_envs+=("${override_base}/info_env")
             fi
         done < "$override_file"
 
-        # override 层放最前（最高）
-        if [[ ${#override_dirs[@]} -gt 0 ]]; then
+        # override 层放最前（最高优先级）
+        if [ ${#override_dirs[@]} -gt 0 ]; then
             lowerdirs=("${override_dirs[@]}" "${lowerdirs[@]}")
         fi
-
-        # override env 最后应用（最高）
-        if [[ ${#override_envs[@]} -gt 0 ]]; then
+        # override env 最后应用（最高优先级）
+        if [ ${#override_envs[@]} -gt 0 ]; then
             env_layers+=("${override_envs[@]}")
         fi
     fi
 
-    # ===============================
-    # 追加 addon envs（在 base env 之后，override env 之前）
-    # 反向追加以确保层级高的 addon env 后加载（优先级更高）
-    # ===============================
-    if [[ ${#addon_envs[@]} -gt 0 ]]; then
+    # addons 的环境变量在 base 之后加载（优先级更高），因此倒序追加
+    if [ ${#addon_envs[@]} -gt 0 ]; then
         local i
         for ((i=${#addon_envs[@]}-1; i>=0; i--)); do
             env_layers+=("${addon_envs[i]}")
         done
     fi
 
-    # ===============================
-    # 检查 lowerdir
-    # ===============================
-    if [[ ${#lowerdirs[@]} -eq 0 ]]; then
+    # ---------------------------------------------------------------------
+    # overlay 的可写层与工作目录
+    # 应用包用自己的 files/core（写入可持久化）；
+    # 纯 base 层没有可写层，或该目录已经作为 lowerdir 使用时，用一次性临时目录。
+    # ---------------------------------------------------------------------
+    if [ ${#lowerdirs[@]} -eq 0 ]; then
         log.error "No valid lower directories found for package: $coredir"
         return 1
     fi
 
+    local upper="${PATH_PREFIX}/var/lib/apm/${coredir}/files/core"
+    local workdir="${PATH_PREFIX}/var/lib/apm/${coredir}/files/work"
+    local need_temp=0
+    local layer
+
+    if [ ! -d "$upper" ]; then
+        need_temp=1
+        # 应用包（有 info）正常应带 files/core；缺失时明确提示，避免静默退化成 base 环境
+        if [ -f "${PATH_PREFIX}/var/lib/apm/${coredir}/info" ]; then
+            log.warn "Package $coredir has no files/core, using a temporary writable layer"
+        fi
+    fi
+    for layer in "${lowerdirs[@]}"; do
+        [ "$layer" = "$upper" ] && need_temp=1
+    done
+
+    if [ "$need_temp" = "1" ]; then
+        _APM_OVERLAY_TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/apm-overlay-${coredir}.XXXXXX")" || {
+            log.error "Failed to create temporary overlay directory"
+            return 1
+        }
+        upper="${_APM_OVERLAY_TEMP_DIR}/upper"
+        workdir="${_APM_OVERLAY_TEMP_DIR}/work"
+    fi
+
+    if ! mkdir -p -- "$upper" "$workdir" 2>/dev/null; then
+        log.error "Failed to create overlay directories: $upper"
+        return 1
+    fi
+
+    # 纯 base 层没有持久可写层：容器内的修改在退出后全部丢弃
+    if [ "$need_temp" = "1" ] && [ ! -f "${PATH_PREFIX}/var/lib/apm/${coredir}/info" ]; then
+        log.warn "Package $coredir is a base layer: changes inside the container will be discarded on exit"
+    fi
+
     local lowerdir
-    lowerdir=$(IFS=:; echo "${lowerdirs[*]}")
+    lowerdir=$(IFS=:; printf '%s' "${lowerdirs[*]}")
 
-    mkdir -p "/tmp/apm/${coredir}"
-
-    # ===============================
+    # ---------------------------------------------------------------------
     # 应用 info_env（从下到上）
-    # ===============================
+    # ---------------------------------------------------------------------
+    local env_file
     for env_file in "${env_layers[@]}"; do
         log.debug "Applying env: $env_file"
-
         while IFS= read -r line || [[ -n "$line" ]]; do
             [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
 
@@ -293,25 +605,52 @@ apm_exec(){
         done < "$env_file"
     done
 
-    # ===============================
+    # ---------------------------------------------------------------------
     # 挂载 overlay
-    # ===============================
+    # ---------------------------------------------------------------------
     log.debug "Mounting overlayfs"
     log.debug "lowerdir=$lowerdir"
 
-    fuse-overlayfs \
-        -o lowerdir="$lowerdir",upperdir="${PATH_PREFIX}/var/lib/apm/${coredir}/files/core/",workdir="${PATH_PREFIX}/var/lib/apm/${coredir}/files/work/" \
-        "/tmp/apm/${coredir}"
+    if [ "$need_temp" = "0" ] &&
+       command -v flock >/dev/null 2>&1 &&
+       command -v mountpoint >/dev/null 2>&1; then
+        local acquire_rc=0
+        _apm_overlay_acquire "$coredir" "$lowerdir" "$upper" "$workdir" || acquire_rc=$?
+        if [ "$acquire_rc" = "2" ]; then
+            # 挂载确实失败：没有可用的根文件系统，执行命令也没有意义
+            return 1
+        fi
+        if [ "$acquire_rc" = "1" ]; then
+            log.debug "Shared overlay is unavailable, using a private mount point"
+        fi
+    fi
 
-    # ===============================
-    # 执行
-    # ===============================
-    chrootEnvPath="/tmp/apm/${coredir}" "${APM_RUN_EXEC}" "$@"
+    if [ "$_APM_OVERLAY_SHARED" != "1" ]; then
+        # 独立挂载点：base 包（一次性可写层）或共享机制不可用时的兜底
+        _APM_OVERLAY_MOUNT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/apm-mnt-${coredir}.XXXXXX")" || {
+            log.error "Failed to create overlay mount point"
+            return 1
+        }
+        if ! fuse-overlayfs \
+            -o "lowerdir=${lowerdir},upperdir=${upper},workdir=${workdir}" \
+            "$_APM_OVERLAY_MOUNT_DIR"; then
+            log.error "Failed to mount overlayfs for package: $coredir"
+            rmdir -- "$_APM_OVERLAY_MOUNT_DIR" 2>/dev/null
+            _APM_OVERLAY_MOUNT_DIR=""
+            return 1
+        fi
+        _APM_OVERLAY_OWNED=1
+    fi
 
-    # ===============================
-    # 卸载
-    # ===============================
-    umount "/tmp/apm/${coredir}"
+    # ---------------------------------------------------------------------
+    # 执行（参数原样传递，退出码原样返回）
+    # ---------------------------------------------------------------------
+    chrootEnvPath="$_APM_OVERLAY_MOUNT_DIR" APM_PKG_NAME="$coredir" "$APM_RUN_EXEC" "$@"
+    local rc=$?
+
+    _apm_overlay_cleanup
+    trap - EXIT INT TERM HUP
+    return "$rc"
 }
 
 # 启动应用：通过 amber-pm-app-launcher 运行
@@ -323,24 +662,20 @@ apm_launch() {
         return 1
     fi
 
-    # 保存原始 PATH_PREFIX，检查包是否存在（逻辑同 run 分支）
-    local original_path_prefix="$PATH_PREFIX"
-    if ! [ -d "${PATH_PREFIX}/var/lib/apm/$pkg" ]; then
-        if [ -d "/var/lib/apm/$pkg" ]; then
-            PATH_PREFIX=""
-        else
-            log.error "Package not installed: $pkg"
-            return 1
-        fi
+    # 包目录既可能在容器根目录里，也可能直接装在宿主 /var/lib/apm 下
+    if [ -d "${PATH_PREFIX}/var/lib/apm/$pkg" ]; then
+        :
+    elif [ -d "/var/lib/apm/$pkg" ]; then
+        PATH_PREFIX=""
+    else
+        log.error "Package not installed: $pkg"
+        return 1
     fi
 
-    # 调用应用启动器，传递所有参数
-    amber-pm-app-launcher "$pkg" "$@"
-    local exit_code=$?
-
-    # 恢复 PATH_PREFIX（不影响后续命令）
-    PATH_PREFIX="$original_path_prefix"
-    return $exit_code
+    # 把容器前缀传给启动器（用于定位桌面文件），不改变当前 shell 的变量
+    local launch_prefix="${PATH_PREFIX%/}"
+    PATH_PREFIX="$launch_prefix" amber-pm-app-launcher "$pkg" "$@"
+    return $?
 }
 
 # 调试信息函数
@@ -375,16 +710,16 @@ fi
 for dir in "$APM_BASE"/*/; do
     # 移除末尾的斜杠得到纯目录名
     dir="${dir%/}"
-    
+
     # 提取目录名（不包括完整路径）
     dirname=$(basename "$dir")
     # 检查目标文件是否存在
     target_file="${APM_BASE}/${dirname}/files/ace-env"
     if [[ -e "$target_file" ]]; then
-        
+
         # 将目录传递给 amber-pm-configure-nvidia
         amber-pm-configure-nvidia "$target_file"
-        
+
 
     fi
 done
@@ -397,7 +732,7 @@ case "$1" in
     shift
     amber-pm-debug aptss "$command" "$@"
     exit_code=$?
-    
+
     # 如果第一次执行失败，尝试修复并重试
     if [ $exit_code -ne 0 ]; then
         log.warn "Command failed, attempting to fix with dpkg --configure -a..."
@@ -406,7 +741,7 @@ case "$1" in
         amber-pm-debug aptss "$command" "$@"
         exit_code=$?
     fi
-    
+
     if [ $exit_code -eq 0 ]; then
         log.info "Operation successful"
     else
@@ -476,31 +811,26 @@ case "$1" in
             show_help
             exit 1
         fi
-        
-        # 检查包是否已安装
+
         pkg="$2"
         shift 2  # 移除 'run' 和包名
-        
-        if ! ls "${PATH_PREFIX}/var/lib/apm/$pkg" >/dev/null 2>&1; then
-        # 如果带前缀的目录不存在，尝试不带前缀的目录
-            if ls "/var/lib/apm/$pkg" >/dev/null 2>&1; then
-                # 如果不带前缀的目录存在，清空 PATH_PREFIX
-                PATH_PREFIX=""
-            else
-                # 如果两个目录都不存在，报错退出
-                log.error "Package not installed: $pkg"
-                exit 1
-            fi
+
+        # 包目录既可能在容器根目录里，也可能直接装在宿主 /var/lib/apm 下
+        if [ -d "${PATH_PREFIX}/var/lib/apm/$pkg" ]; then
+            :
+        elif [ -d "/var/lib/apm/$pkg" ]; then
+            PATH_PREFIX=""
+        else
+            log.error "Package not installed: $pkg"
+            exit 1
         fi
-        
-        coredir=$pkg
-        export APM_PKG_NAME=$pkg
 
         # 检测是否有额外命令参数
         if [ $# -gt 0 ]; then
-            # 有额外参数：执行用户提供的命令
+            # 有额外参数：在容器里执行用户提供的命令，退出码原样返回
             log.info "Running user command: $*"
-            apm_exec "$@"
+            apm_exec "$pkg" "$@"
+            exit $?
         else
             # 没有额外参数：提示用户改用 launch，并自动调用 launch
             log.info "未指定可执行文件路径。如果希望在未指定容器路径的情况下启动应用程序，推荐使用 \"launch\" 命令"
@@ -523,11 +853,11 @@ case "$1" in
         ;;
     debug)
         shift
-        debug_info $@
+        debug_info "$@"
         ;;
     ssaudit)
         amber-pm-debug dpkg --configure -a
-        amber-pm-debug ssaudit $@ --native
+        amber-pm-debug ssaudit "$@" --native
         exit_code=$?
     if [ $exit_code -eq 0 ]; then
         log.info "Operation successful"
@@ -541,7 +871,7 @@ case "$1" in
         ;;
     ssinstall)
         amber-pm-debug dpkg --configure -a
-        amber-pm-debug ssinstall $@ --native
+        amber-pm-debug ssinstall "$@" --native
         exit_code=$?
     if [ $exit_code -eq 0 ]; then
         log.info "Operation successful"
