@@ -706,6 +706,11 @@ apm_debug_info() {
     printf '下载缓存:   %s\n' "$(du -sh -- "$APM_CACHE_DIR" 2>/dev/null | cut -f1 || echo 0)"
     printf '下载参数:   split=%s minsplit=%s piece=%s retry=%s maxnum=%s maxconn=%s\n' \
         "$APM_SPLITCON" "$APM_MINSPLITSZ" "$APM_PIECEALGO" "$APM_MAXRETRY" "$APM_MAXNUM" "$APM_MAXCONPERSRV"
+    local mirrors mirror_count
+    mirrors="$(apm_mirror_urls "$(apm_repo_url 2>/dev/null)" 2>/dev/null)"
+    mirror_count="$(printf '%s\n' "$mirrors" | grep -c . || true)"
+    printf '下载镜像:   %s 个%s\n' "${mirror_count:-0}" \
+        "$([ "${mirror_count:-0}" -gt 0 ] 2>/dev/null && printf '（%s）' "$(printf '%s\n' "$mirrors" | head -n 2 | tr '\n' ' ')...")"
 
     _section "运行环境"
     printf 'bwrap:         %s\n' "$(command -v bwrap || echo 未安装)"
@@ -723,7 +728,11 @@ apm_debug_info() {
         base_found=1
         printf '  %-32s %s %s\n' "$(basename -- "$(dirname -- "$(dirname -- "$d")")")" \
             "$(du -sh -- "$d" 2>/dev/null | cut -f1)" \
-            "$([ -e "$d/finish.flag" ] && echo '[已初始化]' || echo '[未初始化?]')"
+            "$(if [ -e "$d/finish.flag" ] || [ -x "$d/usr/bin/bash" ] || [ -x "$d/bin/bash" ]; then
+                   echo '[已初始化]'
+               else
+                   echo '[未初始化?]'
+               fi)"
     done
     [ "$base_found" = "1" ] || printf '  （无）\n'
 

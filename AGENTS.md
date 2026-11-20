@@ -79,8 +79,8 @@ apm clean
 - 仓库仍是标准 apt 仓库（`InRelease` 签名 + `Packages` + deb SHA256）。
 - `apm update` 像 aptss 一样获取服务配置：
   `https://d.spark-app.store/apm-<架构>.list`、`apt-fast.conf`，
-  用其中的 `_SPLITCON/_MINSPLITSZ/_PIECEALGO/_MAX_RETRY` 等参数调用 aria2c
-  （没有 aria2c 时退回 curl）。
+  用其中的 `_SPLITCON/_MINSPLITSZ/_PIECEALGO/_MAX_RETRY` 等参数调用 aria2c，并按
+  `MIRRORS` 列表对同一文件做多镜像并行下载（没有 aria2c 时退回 curl 单线程）。
 - Debian 系宿主上的 `apt`/`aptss`/星火商店仍可直接安装 APM 包；
   `amber-pm-convert`/`amber-pm-addons-maker` 仍使用 base 环境里的 aptss 制作包。
 - 旧版（1.3.x）安装过的包用 `sudo apm migrate` 迁移。

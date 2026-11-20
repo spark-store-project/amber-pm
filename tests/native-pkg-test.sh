@@ -205,6 +205,7 @@ rebuild_repo
 
 # 模拟 aptss 的服务配置
 cat > "$SPARK/apt-fast.conf" <<'EOF'
+_MIRRORS_PLACEHOLDER
 _MAX_RETRY=1
 _SPLITCON=4
 _MINSPLITSZ=1M
@@ -212,6 +213,11 @@ _PIECEALGO=default
 _MAXNUM=2
 _MAXCONPERSRV=1
 EOF
+# 用假仓库地址生成镜像组（第一项是原始源）
+REPO_URL="file://$REPO"
+printf "MIRRORS=(\n'%s/,http://mirror1.example/apm/,http://mirror2.example/apm/'\n)\n" "$REPO_URL" > "$SPARK/mirrors.tmp"
+sed -i "/_MIRRORS_PLACEHOLDER/d" "$SPARK/apt-fast.conf"
+cat "$SPARK/mirrors.tmp" "$SPARK/apt-fast.conf" > "$SPARK/apt-fast.new" && mv "$SPARK/apt-fast.new" "$SPARK/apt-fast.conf" && rm -f "$SPARK/mirrors.tmp"
 printf 'deb [signed-by=/nonexistent] file://%s /\n' "$REPO" > "$SPARK/apm-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').list"
 
 # ---------------------------------------------------------------------------
@@ -231,6 +237,17 @@ run_apm() {
         bash "$APM_MAIN" "$@" 2>&1
 }
 state() { printf '%s\n' "$ROOT/var/lib/apm"; }
+
+# ===========================================================================
+# 0. aptss 镜像解析
+# ===========================================================================
+mirror_out="$(APM_APTFAST_CONF="$SPARK/apt-fast.conf" bash -c '
+    . "'"$REPO_ROOT"'/src/usr/libexec/apm/apm-lib.sh"
+    . "'"$REPO_ROOT"'/src/usr/libexec/apm/apm-repo.sh"
+    APM_APTFAST_CONF="'"$SPARK"'/apt-fast.conf" apm_mirror_urls "file://'"$REPO"'/pool/x.deb"
+')"
+assert_eq "镜像 1 生成正确" "http://mirror1.example/apm/pool/x.deb" "$(printf '%s\n' "$mirror_out" | sed -n 1p)"
+assert_eq "镜像 2 生成正确" "http://mirror2.example/apm/pool/x.deb" "$(printf '%s\n' "$mirror_out" | sed -n 2p)"
 
 # ===========================================================================
 # 1. update（读取 aptss 服务配置 + 仓库索引）

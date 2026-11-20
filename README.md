@@ -34,7 +34,7 @@ APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上
 
 ## 使用方法
 ```
-APM - Amber Package Manager 2.0.0
+APM - Amber Package Manager 2.0.0~alpha1
 
 Usage:
   apm [COMMAND] [OPTIONS] [PACKAGES...]
@@ -74,7 +74,7 @@ Commands:
 
 - 软件包安装在 `/var/lib/apm/<包名>/`，运行方式不变（base 环境 + overlay + bwrap）。
 - 仓库索引来自星火服务端的 apt 兼容索引（`InRelease` GPG 签名 + `Packages` SHA256 校验 +
-  deb SHA256 校验），并使用和 aptss 相同的服务配置与多连接下载（aria2c，缺失时退回 curl）。
+  deb SHA256 校验），并使用和 aptss 相同的服务配置与多连接下载（aria2c + `MIRRORS` 多镜像并行，缺失 aria2c 时退回 curl）。
 - 支持 `--force-outside-paths`：软件包默认只允许写入自己的目录；如果要写入其它位置，
   需要显式确认（高风险）。
 - 卸载会清理 `/var/lib/apm/<包名>` 与所有用户的 `~/.apm/<包名>`。

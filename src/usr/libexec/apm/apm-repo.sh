@@ -29,7 +29,7 @@ apm_repo_keyring() {
     for cand in \
         "$APM_ROOT/etc/apt/trusted.gpg.d/apm.gpg" \
         "$APM_ROOT/etc/apt/trusted.gpg.d/spark-store.gpg" \
-        "$_apm_lib_dir/../../share/apm/apm-archive-keyring.gpg" \
+        "${_apm_lib_dir:-/usr/libexec/apm}/../../share/apm/apm-archive-keyring.gpg" \
         "/usr/share/apm/apm-archive-keyring.gpg"; do
         if [ -f "$cand" ]; then
             printf '%s\n' "$cand"
@@ -71,6 +71,35 @@ apm_aptss_conf_load() { # [--refresh]
     v="$(_apm_conf_value _MAXNUM "$APM_APTFAST_CONF")" && [ -n "$v" ] && APM_MAXNUM="$v"
     v="$(_apm_conf_value _MAXCONPERSRV "$APM_APTFAST_CONF")" && [ -n "$v" ] && APM_MAXCONPERSRV="$v"
     log.debug "下载参数: split=$APM_SPLITCON min-split=$APM_MINSPLITSZ piece=$APM_PIECEALGO retry=$APM_MAXRETRY maxnum=$APM_MAXNUM maxconn=$APM_MAXCONPERSRV"
+}
+
+# 从 apt-fast.conf 的 MIRRORS=( ... ) 为某个 URL 找出可用镜像。
+# 数组的每个元素是一组逗号分隔的镜像地址，第一项是原始源（不重复下载），
+# 其余项与第一项同路径，替换前缀即可得到同一文件的镜像 URL。
+apm_mirror_urls() { # URL
+    local url="$1"
+    [ -s "$APM_APTFAST_CONF" ] || return 0
+    awk -v url="$url" '
+        BEGIN { inmir = 0 }
+        /^MIRRORS=\(/ { inmir = 1; next }
+        inmir && /^[[:space:]]*\)/ { inmir = 0; next }
+        inmir {
+            line = $0
+            sub(/^[ \t]+/, "", line)
+            sub(/[ \t]+$/, "", line)
+            if (line == "" || line ~ /^#/) next
+            gsub(/^["\047]+/, "", line)
+            gsub(/["\047]+$/, "", line)
+            n = split(line, u, ",")
+            if (n < 2) next
+            if (index(url, u[1]) != 1) next
+            suffix = substr(url, length(u[1]) + 1)
+            for (i = 2; i <= n; i++) {
+                if (u[i] == "") continue
+                print u[i] suffix
+            }
+            exit
+        }' "$APM_APTFAST_CONF"
 }
 
 # 像 aptss 的 update_list 一样获取 APM 仓库源列表，并解析出仓库基础 URL

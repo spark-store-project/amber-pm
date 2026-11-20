@@ -202,27 +202,73 @@ apm_vercmp_gt() { [ "$(apm_vercmp "$1" "$2")" -gt 0 ]; }
 # ---------------------------------------------------------------------------
 apm_download_one() { # url dest
     local url="$1" dest="$2"
-    local dir base rc
+    local dir base rc log err
     dir="$(dirname "$dest")"
     base="$(basename "$dest")"
     mkdir -p "$dir" || return 1
 
     if [ "$APM_DOWNLOAD_ENGINE" != "curl" ] && command -v aria2c >/dev/null 2>&1; then
-        # 单文件也用多连接：apt-fast 的 _SPLITCON 就是"每服务器连接数上限"
+        # 下载源：主源 + aptss 配置里的镜像（同一文件的多服务器下载）
+        local -a urls=("$url")
+        local mirror
+        if declare -F apm_mirror_urls >/dev/null 2>&1; then
+            while IFS= read -r mirror; do
+                [ -n "$mirror" ] && urls+=("$mirror")
+            done < <(apm_mirror_urls "$url" 2>/dev/null)
+        fi
+
         local split="${APM_SPLITCON:-8}"
-        aria2c --no-conf -c \
-            -s "$split" -x "$split" -k "${APM_MINSPLITSZ:-1M}" \
-            --stream-piece-selector="${APM_PIECEALGO:-default}" \
-            --connect-timeout=30 --timeout=40 \
-            --max-tries="${APM_MAXRETRY:-2}" --retry-wait=1 \
-            --async-dns=false --check-certificate=false \
-            --user-agent="aptss/4.x apm/1.4" \
-            -d "$dir" -o "$base" "$url" >/dev/null 2>&1
+        local maxconn="${APM_MAXCONPERSRV:-1}"
+        case "$split" in '' | *[!0-9]*) split=8 ;; esac
+        case "$maxconn" in '' | *[!0-9]*) maxconn=1 ;; esac
+        [ "$split" -ge 1 ] || split=8
+        [ "$maxconn" -ge 1 ] || maxconn=1
+
+        # 有镜像时每个服务器 1 条连接也能多线；没有镜像时用分片数强开多连接
+        if [ ${#urls[@]} -le 1 ] && [ "$maxconn" -le 1 ]; then
+            maxconn="$split"
+        fi
+
+        local -a progress=(--summary-interval=0 --console-log-level=error)
+        if [ -t 2 ]; then
+            progress=(--summary-interval=1 --console-log-level=warn)
+        fi
+
+        log="$(mktemp "${TMPDIR:-/tmp}/apm-aria2.XXXXXX" 2>/dev/null || echo /dev/null)"
+        if [ -t 2 ]; then
+            # 进度输出到 stderr，避免污染 apm_fetch_deb 等函数的 stdout
+            aria2c --no-conf -c \
+                -s "$split" -x "$maxconn" -j "${APM_MAXNUM:-5}" \
+                -k "${APM_MINSPLITSZ:-1M}" \
+                --stream-piece-selector="${APM_PIECEALGO:-default}" \
+                --connect-timeout=30 --timeout=40 \
+                --max-tries="${APM_MAXRETRY:-2}" --retry-wait=1 \
+                --async-dns=false --check-certificate=false \
+                --user-agent="aptss/4.x apm/${APM_VERSION:-2}" \
+                "${progress[@]}" -d "$dir" -o "$base" "${urls[@]}" 1>&2 2>>"$log"
+        else
+            aria2c --no-conf -c \
+                -s "$split" -x "$maxconn" -j "${APM_MAXNUM:-5}" \
+                -k "${APM_MINSPLITSZ:-1M}" \
+                --stream-piece-selector="${APM_PIECEALGO:-default}" \
+                --connect-timeout=30 --timeout=40 \
+                --max-tries="${APM_MAXRETRY:-2}" --retry-wait=1 \
+                --async-dns=false --check-certificate=false \
+                --user-agent="aptss/4.x apm/${APM_VERSION:-2}" \
+                "${progress[@]}" -d "$dir" -o "$base" "${urls[@]}" >/dev/null 2>>"$log"
+        fi
         rc=$?
         if [ "$rc" -eq 0 ] && [ -s "$dest" ]; then
+            [ "$log" != "/dev/null" ] && rm -f -- "$log"
+            log.debug "aria2c 下载完成：源 ${#urls[@]} 个，split=$split，单服务器连接=$maxconn"
             return 0
         fi
-        log.debug "aria2c 下载失败（$rc，maxnum=$APM_MAXNUM maxconn=$APM_MAXCONPERSRV），改用 curl: $url"
+        err=""
+        if [ -s "$log" ]; then
+            err="$(tail -n 2 "$log" 2>/dev/null | tr '\n' ' ')"
+        fi
+        [ "$log" != "/dev/null" ] && rm -f -- "$log"
+        log.warn "aria2c 下载失败（rc=$rc），改用 curl 单线程下载: ${err:-未知错误}"
     fi
 
     curl -fL --retry "${APM_MAXRETRY:-2}" --connect-timeout 30 --max-time 0 \
