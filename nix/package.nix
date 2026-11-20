@@ -27,7 +27,7 @@
   xdg-user-dirs,
   xz,
   zenity,
-  version ? "1.3.4.2",
+  version ? "1.4.0",
   sourceRoot ? ../.,
   src ? lib.cleanSourceWith {
     src = sourceRoot;
