@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# APM 包数据目录（1.4.0 起包直接装在宿主 /var/lib/apm 下）
+# APM 包数据目录（2.0.0 起包直接装在宿主 /var/lib/apm 下）
 APM_STATE_DIR="${APM_STATE_DIR:-/var/lib/apm}"
 APM_STATE_DIR="${APM_STATE_DIR%/}"
 

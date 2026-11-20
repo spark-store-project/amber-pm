@@ -10,7 +10,7 @@ APM 是一款基于 fuse-overlayfs、bubblewrap 与 AmberCE 兼容环境的软�
 
 APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上环境的应用转换为 APM 应用。
 
-> **1.4.0 起包管理改为原生实现**：不再依赖 dpkg/apt，也不再携带 Ubuntu 管理环境 rootfs。
+> **2.0.0 起包管理改为原生实现**：不再依赖 dpkg/apt，也不再携带 Ubuntu 管理环境 rootfs。
 > 仓库仍然是标准 apt 仓库（签名索引 + deb 包），因此 Debian 系发行版上的 apt / aptss /
 > 星火商店依旧可以直接管理 APM 软件包；APM 自己则用原生安装器完成安装与升级。
 > 从 1.3.x 升级的用户请执行 `sudo apm migrate` 迁移已安装的软件包。
@@ -34,7 +34,7 @@ APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上
 
 ## 使用方法
 ```
-APM - Amber Package Manager 1.4.0
+APM - Amber Package Manager 2.0.0
 
 Usage:
   apm [COMMAND] [OPTIONS] [PACKAGES...]
@@ -70,7 +70,7 @@ Commands:
   -v, --version     展示APM版本号
 ```
 
-### 原生包管理（1.4.0+）
+### 原生包管理（2.0.0+）
 
 - 软件包安装在 `/var/lib/apm/<包名>/`，运行方式不变（base 环境 + overlay + bwrap）。
 - 仓库索引来自星火服务端的 apt 兼容索引（`InRelease` GPG 签名 + `Packages` SHA256 校验 +

@@ -1,6 +1,6 @@
 # Tips
 
-1. 1.4.0 起 `apm` 使用原生包管理：不再依赖 dpkg/apt，也不再携带 Ubuntu 管理环境。
+1. 2.0.0 起 `apm` 使用原生包管理：不再依赖 dpkg/apt，也不再携带 Ubuntu 管理环境。
    软件包仍然安装在 `/var/lib/apm/<包名>/`，运行方式（base 环境 + overlay + bwrap）不变。
 
 2. 仓库仍然是 apt 兼容格式（`InRelease` + `Packages` + deb）。`apm update` 会像 aptss
@@ -25,7 +25,7 @@
 6. 打包 apm 包时需要注意的
    * 对应的 desktop 的 Exec 和 TryExec 均需要加入 `apm run 包名` 前缀（部分自动化）
    * `.desktop` 中 Icon 使用绝对路径时，路径应为宿主 `/var/lib/apm/<包名>/files/core/...`
-     （1.4.0 起不再有管理环境前缀）
+     （2.0.0 起不再有管理环境前缀）
 
 7. apm todo（未完成）
 
@@ -45,4 +45,4 @@
 * apm 环境变量添加 IS_APM_ENV=1 GTK_USE_PORTAL=1
 * 重要：如何在 APM 内更新内容——如何覆盖？
 * deb 全自动转 apm
-* 1.4.0：原生包管理，移除 dpkg/apt 与管理环境 rootfs，兼容 aptss 配置与多线下载
+* 2.0.0：原生包管理，移除 dpkg/apt 与管理环境 rootfs，兼容 aptss 配置与多线下载

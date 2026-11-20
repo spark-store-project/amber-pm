@@ -92,7 +92,7 @@ apm_cmd_migrate() {
 
     local oldenv="$APM_STATE_DIR/apm/files/ace-env"
     local old_pkgs="$oldenv/var/lib/apm"
-    local migrated=0 moved=0 skipped=0 adopted=0
+    local migrated=0 moved=0 skipped=0 adopted=0 migrate_failed=0
 
     # 1. 迁移旧管理环境里的包
     if [ -d "$old_pkgs" ]; then
@@ -114,7 +114,8 @@ apm_cmd_migrate() {
                 if cp -a -- "$d" "$target" && rm -rf -- "$d"; then
                     :
                 else
-                    log.error "迁移 $pkg 失败"
+                    log.error "迁移 $pkg 失败（旧包保留在原处）"
+                    migrate_failed=1
                     continue
                 fi
             fi
@@ -149,16 +150,21 @@ apm_cmd_migrate() {
     # 3. 修正桌面文件里的旧路径
     _apm_migrate_rewrite_desktop
 
-    # 4. 删除旧管理环境（只删 rootfs，保留 /var/lib/apm/apm/files 下的运行时脚本）
+    # 4. 删除旧管理环境（只在全部迁移成功时执行；rootfs 很大，失败时保留原处）
     if [ -d "$oldenv" ]; then
-        log.info "删除旧管理环境: $oldenv"
-        rm -rf -- "$oldenv"
-        rm -f -- "$APM_STATE_DIR/apm/files/ace-env.tar.xz"
+        if [ "$migrate_failed" = "1" ]; then
+            log.error "部分软件包迁移失败，旧管理环境已保留: $oldenv"
+            log.error "排查后请重新执行: sudo apm migrate"
+        else
+            log.info "删除旧管理环境: $oldenv"
+            rm -rf -- "$oldenv"
+            rm -f -- "$APM_STATE_DIR/apm/files/ace-env.tar.xz"
+        fi
     fi
 
     apm_run_triggers
     log.info "迁移完成：迁移 $migrated 个包，接管 $adopted 个包，跳过 $skipped 个"
     log.info "提示：旧版的 amber-pm-debug / apm debug 交互调试环境已随管理环境移除，"
     log.info "      现在可以用 apm run <base 包> bash 进入任意 base 环境，用 apm debug 查看调试信息。"
-    return 0
+    return "$migrate_failed"
 }

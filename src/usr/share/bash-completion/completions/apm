@@ -1,4 +1,4 @@
-# apm(8) bash 补全（1.4.0 起为原生包管理）
+# apm(8) bash 补全（2.0.0 起为原生包管理）
 # 安装位置：/usr/share/bash-completion/completions/apm
 
 _apm_installed_pkgs() {

@@ -1,5 +1,5 @@
 #compdef apm
-# apm(8) zsh 补全（1.4.0 起为原生包管理）
+# apm(8) zsh 补全（2.0.0 起为原生包管理）
 
 _apm_installed_pkgs() {
     local d base

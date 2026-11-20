@@ -1,7 +1,7 @@
 Package: apm
 Source: amber-ce
 Version: @VERSION@
-Architecture: amd64
+Architecture: all
 Maintainer: shenmo <shenmo@spark-app.store>
 Installed-Size: 13000
 Depends: zenity | garma, bubblewrap, flatpak, policykit-1 | pkexec | polkit-1 | polkit, systemd, procps, coreutils, fuse-overlayfs, xz-utils | xz, zstd, gpgv, tar, libnotify-bin, curl, xdg-user-dirs, bash
@@ -13,6 +13,6 @@ Multi-Arch: foreign
 Homepage: https://gitee.com/amber-ce/amber-pm/
 Description: Amber Package Manager with native (apt-free) package management
  APM installs and runs Debian-based applications inside bwrap/overlayfs
- environments. Since 1.4.0 packages are managed natively from the apt-style
+ environments. Since 2.0.0 packages are managed natively from the apt-style
  APM repository (signed index + .deb payloads) without requiring dpkg/apt or a
  bundled management rootfs.

@@ -41,7 +41,7 @@ sudo ./result/bin/amber-pm-init-state --force
 
 `--force` 会原地覆盖 `/var/lib/apm/apm` 中的 APM 自身文件，不会移动、备份或删除整个 `/var/lib/apm/apm` 目录，以免影响已经安装在该目录下的 APM 应用。
 
-1.4.0 起 APM 不再携带管理环境 rootfs，不需要 `ace-init`。接下来更新仓库索引并查看调试信息即可：
+2.0.0 起 APM 不再携带管理环境 rootfs，不需要 `ace-init`。接下来更新仓库索引并查看调试信息即可：
 
 ```bash
 sudo ./result/bin/apm update
@@ -92,11 +92,11 @@ NUR 仓库中的示例：
 
 {
   amber-pm = pkgs.callPackage ./pkgs/amber-pm {
-    version = "1.4.0";
+    version = "2.0.0";
     src = pkgs.fetchFromGitHub {
       owner = "amber-ce";
       repo = "amber-pm";
-      rev = "v1.4.0";
+      rev = "v2.0.0";
       hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
     };
   };

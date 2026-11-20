@@ -1,3 +1,6 @@
 result
 result-*
 spark-store/
+dist/
+apm_*_*.deb
+apm_*_*/

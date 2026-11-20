@@ -2,7 +2,7 @@
 # =============================================================================
 # amber-pm-desktop-fix —— APM 桌面集成
 #
-# 1.4.0 起 APM 包直接安装在宿主 /var/lib/apm/<包名>/，不再有管理环境。
+# 2.0.0 起 APM 包直接安装在宿主 /var/lib/apm/<包名>/，不再有管理环境。
 # 本脚本把每个包 entries/ 下的桌面文件与图标链接到桌面环境能找到的目录：
 #   * 麒麟系统: /usr/share/{applications,icons}
 #   * KDE:      /usr/local/share/applications/apm

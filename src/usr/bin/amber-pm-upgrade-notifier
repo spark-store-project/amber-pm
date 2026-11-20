@@ -2,7 +2,7 @@
 # =============================================================================
 # amber-pm-upgrade-notifier —— 每日检查 APM 软件包更新并通知桌面用户
 #
-# 1.4.0 起使用原生包管理（apm update / apm list --upgradable），
+# 2.0.0 起使用原生包管理（apm update / apm list --upgradable），
 # 不再需要管理环境、amber-pm-debug 或 dpkg-query。
 # 由 apm-daily-update.service 以 root 身份运行。
 # =============================================================================

@@ -88,7 +88,7 @@ if [ -z "$BASE_NAME" ]; then
     exit 1
 fi
 
-# 检查 base 是否存在（1.4.0 起包直接安装在宿主 /var/lib/apm）
+# 检查 base 是否存在（2.0.0 起包直接安装在宿主 /var/lib/apm）
 BASE_DIR="/var/lib/apm/${BASE_NAME}"
 if [ ! -d "$BASE_DIR" ]; then
     log.error "错误：基础环境不存在: $BASE_NAME（请先 sudo apm install $BASE_NAME）"

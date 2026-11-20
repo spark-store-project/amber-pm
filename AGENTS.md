@@ -1,7 +1,7 @@
 # APM 代理与助手（AGENTS）
 
 本文档描述 APM 的运行时结构、CLI 工具与排障方式。
-**1.4.0 起 APM 的包管理为原生实现**：不再依赖 dpkg/apt，也不再携带 Ubuntu 管理环境
+**2.0.0 起 APM 的包管理为原生实现**：不再依赖 dpkg/apt，也不再携带 Ubuntu 管理环境
 rootfs；软件包直接安装在宿主 `/var/lib/apm/<包名>/`，运行时仍是
 "base 环境 rootfs + overlayfs + bwrap"。
 
