@@ -60,6 +60,8 @@ let
     gnugrep
     gnused
     gzip
+    gnupg
+    zstd
     libnotify
     procps
     sudo
@@ -91,7 +93,6 @@ stdenvNoCC.mkDerivation {
     cp -a src/* "$out"/
 
     rm -f "$out/usr/bin/apm" \
-      "$out/usr/bin/amber-pm-debug" \
       "$out/usr/bin/amber-pm-configure-nvidia"
 
     echo "substituting version and store paths"
@@ -110,8 +111,6 @@ stdenvNoCC.mkDerivation {
     patchShebangs \
       "$out/var/lib/apm/apm/files/ace-run" \
       "$out/var/lib/apm/apm/files/ace-run-pkg" \
-      "$out/var/lib/apm/apm/files/bin/ace-init" \
-      "$out/var/lib/apm/apm/files/bin/ace-run" \
       "$out/var/lib/apm/apm/files/bin/amber-ce-configure-nvidia" \
       "$out/var/lib/apm/apm/files/build-container.sh" \
       "$out/var/lib/apm/apm/files/feedback.sh" \
@@ -126,14 +125,12 @@ stdenvNoCC.mkDerivation {
 
     echo "installing wrappers"
     mkdir -p "$out/bin" "$out/share/amber-pm/var-lib-apm"
-    ln -s /var/lib/apm/apm/files/bin/ace-run "$out/bin/amber-pm-debug"
     ln -s /var/lib/apm/apm/files/bin/amber-ce-configure-nvidia "$out/bin/amber-pm-configure-nvidia"
 
     for prog in "$out"/usr/bin/*; do
       if [ -f "$prog" ] || [ -L "$prog" ]; then
         name="$(basename "$prog")"
         if [ "$name" != apm ] \
-          && [ "$name" != amber-pm-debug ] \
           && [ "$name" != amber-pm-configure-nvidia ]; then
           makeWrapper "$prog" "$out/bin/$name" \
             --prefix PATH : "$out/bin:${runtimePath}"
@@ -177,7 +174,7 @@ cp -a "$seed"/. "$target"/
 echo '@version@' > "$target/.amber-pm-version"
 chmod -R u+rwX "$target"
 echo "Initialized $target"
-echo "Next step: run '/var/lib/apm/apm/files/bin/ace-init' as root, or run 'apm --help' for CLI smoke testing."
+echo "Next step: run 'apm update' to fetch the package index, or 'apm --help'."
 EOF
     substituteInPlace "$out/bin/amber-pm-init-state" \
       --replace-fail '@bash@' '${bash}' \

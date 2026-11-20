@@ -1,219 +1,190 @@
 # APM 代理与助手（AGENTS）
 
-本文档描述了 APM 项目中使用的代理和助手工具，它们用于增强 APM 的功能和用户体验。
+本文档描述 APM 的运行时结构、CLI 工具与排障方式。
+**1.4.0 起 APM 的包管理为原生实现**：不再依赖 dpkg/apt，也不再携带 Ubuntu 管理环境
+rootfs；软件包直接安装在宿主 `/var/lib/apm/<包名>/`，运行时仍是
+"base 环境 rootfs + overlayfs + bwrap"。
 
-## 1. 核心代理工具
+## 1. 核心命令
 
-### 1.1 amber-pm-debug
+### 1.1 apm run
 
-**功能**：用于在 APM 环境中执行命令，提供调试和诊断功能。
+**功能**：在指定软件包的容器环境中执行命令（可指定容器内路径）。
 
-**使用场景**：
-- 执行 apt 相关命令
-- 执行 dpkg 相关命令
-- 进入调试环境
-
-**示例**：
 ```bash
-amber-pm-debug apt update
-amber-pm-debug dpkg --configure -a
+apm run <包名> [EXEC_PATH] [args...]
+apm run <包名>                      # 等价于 apm launch <包名>
+apm run amber-pm-trixie bash        # 直接进入 base 环境的 shell（临时可写层）
+apm run <包名> bash -c 'ls / | head'
 ```
 
-### 1.2 amber-pm-app-launcher
+- 参数按 argv 原样传递（引号/空格/`$`/反引号/换行都不会被二次解释）。
+- 同名包的多个实例共享同一个 overlay 挂载（引用计数，最后一个实例退出时卸载）。
+- 直接运行 base 包（没有 `files/core` 的包）时使用一次性可写层，退出后丢弃。
+- 调试参数传递：`APM_RUN_DEBUG=1 apm run ...` 会打印最终 bwrap argv。
 
-**功能**：通过应用启动器启动 APM 软件包。
+### 1.2 apm launch
 
-**使用场景**：
-- 启动已安装的 APM 应用
-- 传递参数给应用
+通过应用启动器启动软件包（读取包的 `entries/applications/*.desktop`）：
 
-**示例**：
 ```bash
-amber-pm-app-launcher firefox
-amber-pm-app-launcher gedit --new-document
+apm launch <包名> [arg...]
 ```
 
-### 1.3 amber-pm-configure-nvidia
+### 1.3 apm debug
 
-**功能**：配置 NVIDIA 驱动支持。
+只打印调试信息（主机信息 + APM 自身信息：仓库地址、索引、已安装包、base 环境、
+overlay 挂载、下载参数、工具依赖等）。不再进入交互环境；需要 shell 用
+`apm run <base 包> bash`。
 
-**使用场景**：
-- 自动从主机获取 NVIDIA 驱动文件
-- 为 APM 应用提供 GPU 加速支持
-
-**示例**：
 ```bash
-amber-pm-configure-nvidia /path/to/ace-env
+apm debug
 ```
 
-## 2. 构建与转换工具
+## 2. 原生包管理
 
-### 2.1 amber-pm-convert
+### 2.1 常用命令
 
-**功能**：将普通 Deb 包转换为 APM 软件包。
+```bash
+sudo apm update                 # 更新仓库索引（含星火服务配置）
+sudo apm install <包>...        # 安装（也支持 ./xxx.deb）
+sudo apm remove <包>...         # 卸载
+sudo apm upgrade                # 升级所有可升级包
+sudo apm autoremove             # 清理不再需要的依赖
+apm list [--installed|--all|--upgradable]
+apm search <关键词>
+apm show / policy / depends / rdepends <包>
+apm download <包>
+sudo apm hold / unhold <包>
+apm clean
+```
 
-**使用场景**：
-- 转换第三方 Deb 包为 APM 格式
-- 自定义包名和版本号
+### 2.2 存储布局
 
-**示例**：
+```text
+/var/lib/apm/<包名>/            软件包本体（files/core、entries、info 等）
+/var/lib/apm/db/<包名>/status   安装状态（版本/依赖/Auto/Held/来源/SHA256）
+/var/lib/apm/db/<包名>/files.list 安装的文件清单（绝对路径，一行一个）
+/var/lib/apm/lists/             仓库索引、aptss 服务配置缓存
+/var/lib/apm/cache/             下载的 deb 缓存
+/var/lib/apm/apm/files/         宿主侧的运行脚本（ace-run 等）
+```
+
+- 包默认只能写自己的目录；addons 包写 `<base>/info_layer_addons.d/` 的登记文件是允许的。
+- 越界路径默认拒绝安装，确认可信后用 `--force-outside-paths`。
+- 卸载按 `files.list` + 包目录清理，并删除所有用户的 `~/.apm/<包名>`。
+
+### 2.3 仓库与 aptss 兼容
+
+- 仓库仍是标准 apt 仓库（`InRelease` 签名 + `Packages` + deb SHA256）。
+- `apm update` 像 aptss 一样获取服务配置：
+  `https://d.spark-app.store/apm-<架构>.list`、`apt-fast.conf`，
+  用其中的 `_SPLITCON/_MINSPLITSZ/_PIECEALGO/_MAX_RETRY` 等参数调用 aria2c
+  （没有 aria2c 时退回 curl）。
+- Debian 系宿主上的 `apt`/`aptss`/星火商店仍可直接安装 APM 包；
+  `amber-pm-convert`/`amber-pm-addons-maker` 仍使用 base 环境里的 aptss 制作包。
+- 旧版（1.3.x）安装过的包用 `sudo apm migrate` 迁移。
+
+## 3. 构建与转换工具
+
+### 3.1 amber-pm-convert
+
+把普通 deb 转换成 APM 包。构建在 base 环境的融合挂载中进行（需要 base 环境里
+的 aptss 解析依赖），**构建机需要宿主提供 `dpkg`/`fakeroot`**（用于生成 deb）。
+
 ```bash
 amber-pm-convert --base amber-pm-trixie /path/to/package.deb
-amber-pm-convert --base amber-pm-bookworm-spark-wine /path/to/package.deb --pkgname new-pkg --version 1.0.0
 ```
 
-### 2.2 amber-pm-addons-maker
+### 3.2 amber-pm-addons-maker
 
-**功能**：创建 APM addons 包，用于在 base 之上叠加额外的环境层。
+为 base 环境创建 addons 包（安装后自动登记到 `<base>/info_layer_addons.d/`）。
 
-**使用场景**：
-- 为 base 环境添加 NVIDIA 驱动、Mesa 补丁
-- 为 base 环境添加 Git、Java、Python 等运行时
-- 所有基于该 base 的应用自动继承 addons 环境
-
-**示例**：
 ```bash
 amber-pm-addons-maker --base amber-pm-bookworm --manual --pkgname amber-pm-bookworm-nvidia-addons
-amber-pm-addons-maker --base amber-pm-trixie /path/to/mesa-patch.deb --pkgname amber-pm-trixie-mesa-addons
 ```
 
-**说明**：
-- addons 包命名格式建议为 `<base>-<描述>-addons`
-- 安装后自动在对应 base 的 `info_layer_addons.d/` 中注册
-- 支持 `--manual` 参数进入交互式创建流程
+### 3.3 base 环境包
 
-### 2.3 amber-pm-dstore-patch
+base 包（如 `amber-pm-trixie`）的 payload 为 `files/ace-env.tar.xz` + `files/bin/ace-init`：
 
-**功能**：修补应用商店相关配置。
+- 安装：解 deb → 执行 `PACKAGE_NAME=<包名> files/bin/ace-init` 解压并初始化 rootfs →
+  删除 `ace-env.tar.xz`。
+- 升级：先覆盖 `ace-env.tar.xz`，再跑 `ace-init` 覆盖 rootfs，最后删除 tar.xz。
 
-**使用场景**：
-- 安装或更新软件包后自动执行
-- 确保应用商店配置正确
-
-### 2.3 amber-pm-desktop-fix
-
-**功能**：修复桌面环境相关问题，维护应用程序和图标链接。
-
-**使用场景**：
-- 安装或移除软件包后自动执行
-- 确保桌面环境正常运行
-- 自动迁移旧版链接到新目录结构
-
-**说明**：
-- 银河麒麟系统：链接到 `/usr/share/applications/`
-- 其他发行版：链接到 `/usr/local/share/applications/apm/`
-
-## 3. 沙箱与安全工具
-
-### 3.1 APM_USE_SANDBOX
-
-**功能**：启用主目录沙箱化。
-
-**使用场景**：
-- 运行不受信任的应用
-- 保护用户主目录
-
-**示例**：
-```bash
-apm sandbox-run firefox
-```
-
-### 3.2 APM_USE_BWRAP
-
-**功能**：使用 bwrap 进行额外的隔离。
-
-**使用场景**：
-- 需要更强隔离性的应用
-- 增强安全性
-
-**示例**：
-```bash
-apm bwrap-run firefox
-```
-
-## 4. 本地安装工具
-
-### 4.1 ssinstall
-
-**功能**：使用 ssinstall 进行本地软件安装。
-
-**使用场景**：
-- 安装本地软件包
-- 与 spark-store 集成
-
-**示例**：
-```bash
-apm ssinstall /path/to/package
-```
-
-### 4.2 ssaudit
-
-**功能**：使用 ssaudit 进行本地软件安装。
-
-**使用场景**：
-- 安装本地软件包并进行审计
-- 与 spark-store 集成
-
-**示例**：
-```bash
-apm ssaudit /path/to/package
-```
-
-## 5. 环境变量
-
-### 5.1 APM_PKG_NAME
-
-**功能**：指定当前运行的包名。
-
-**使用场景**：
-- 在脚本中识别当前包
-- 为应用提供包信息
-
-### 5.2 PATH_PREFIX
-
-**功能**：指定 APM 基础路径。
-
-**使用场景**：
-- 自定义 APM 安装位置
-- 多环境管理
-
-## 6. 工作原理
-
-APM 代理和助手工具通过以下方式工作：
-
-1. **环境隔离**：使用 fuse-overlayfs 创建隔离的文件系统环境
-2. **命令转发**：将用户命令转发到适当的环境中执行
-3. **资源共享**：从主机系统获取必要的资源（如 NVIDIA 驱动）
-4. **安全增强**：提供沙箱和隔离机制
-5. **用户体验**：简化应用的安装和运行过程
-
-## 7. 故障排除
-
-### 7.1 常见问题
-
-- **NVIDIA 驱动问题**：确保主机已安装 NVIDIA 驱动，APM 会自动检测并使用
-- **沙箱权限**：确保用户有足够的权限创建和管理沙箱
-- **包依赖**：使用 `apm show <package>` 查看包依赖，确保所有依赖已安装
-
-### 7.2 调试命令
+## 4. 沙箱与安全
 
 ```bash
-# 查看调试信息
-apm debug
-
-# 检查包状态
-amber-pm-debug dpkg -l | grep <package>
-
-# 检查 NVIDIA 配置
-apm-nvidia-toggle
+apm sandbox-run <包名> <命令>   # 把 $HOME 沙箱化到 ~/.apm/<包名>
+apm bwrap-run <包名> <命令>     # 使用 bwrap 运行
 ```
 
-## 8. 扩展与定制
+运行环境由 `fuse-overlayfs`（base 层 + 应用层）与 `bwrap` 组成；overlay 挂载点位于
+`$XDG_RUNTIME_DIR/apm-run/<包名>`（没有 XDG_RUNTIME_DIR 时在 `/tmp`）。
 
-APM 代理系统设计为可扩展的，您可以：
+## 5. 本地软件安装（星火商店兼容）
 
-1. **添加自定义代理**：在 `src/var/lib/apm/apm/files/ace-env/usr/bin/` 目录添加新的代理脚本
-2. **修改现有代理**：根据需要调整现有代理的行为
-3. **创建自定义基础环境**：使用 `amber-pm-convert` 工具创建基于特定需求的基础环境
+```bash
+apm ssinstall <包名|deb路径>    # 按星火仓库校验 Size/SHA256 后安装
+apm ssaudit <包名|deb路径>      # 只校验，不安装
+```
 
-通过这些工具和技术，APM 提供了一个灵活、安全、高效的软件包管理系统，适用于各种 Linux 发行版。
+## 6. 环境变量
+
+| 变量 | 作用 |
+|---|---|
+| `APM_DEBUG=1` | 输出调试日志 |
+| `APM_RUN_DEBUG=1` | 打印容器最终 bwrap argv |
+| `APM_ROOT=<目录>` | 把数据目录重定向到测试目录（不要求 root，用于测试） |
+| `APM_STATE_DIR` | 覆盖包数据目录（默认 `$APM_ROOT/var/lib/apm`） |
+| `APM_REPO_URL` | 直接指定仓库地址，跳过 aptss 服务配置探测 |
+| `APM_SPARK_URL` | 星火服务地址（默认 `https://d.spark-app.store`） |
+| `APM_KEYRING` | 仓库公钥路径 |
+| `APM_INSECURE=1` | 跳过仓库签名校验（不建议） |
+| `APM_NO_TRIGGERS=1` | 安装/卸载后不执行桌面集成等动作 |
+| `APM_DOWNLOAD_ENGINE=curl` | 强制使用 curl 下载 |
+| `IS_ACE_ENV` / `IS_APM_ENV` | 容器内标识（由 ace-run 设置） |
+
+## 7. 工作原理
+
+1. **安装**：`apm update` 获取签名索引并缓存；`apm install` 解析依赖（`apm` 视为虚拟包），
+   下载 deb 并校验 SHA256，解包到 staging 做路径白名单检查，然后写入
+   `/var/lib/apm/<包名>/`，记录数据库；base 包额外执行 `ace-init`。
+2. **运行**：`apm run` 读取包的 `info` 依赖链，用 overlayfs 组合 base 层与应用层，
+   再通过 bwrap 进入环境执行命令。
+3. **集成**：安装/卸载后执行触发动作（`amber-pm-dstore-patch`、`amber-pm-desktop-fix`、
+   NVIDIA 配置、mime 数据库更新），对应旧版 apm 仓库包的 dpkg trigger。
+
+## 8. 故障排除
+
+```bash
+apm debug                            # 主机 + APM 信息
+apm --help-all                       # 全部命令说明
+APM_DEBUG=1 sudo apm install <包>    # 安装过程调试
+APM_RUN_DEBUG=1 apm run <包> <命令>   # 查看容器参数
+apm policy <包>                      # 已安装/候选版本
+```
+
+常见问题：
+
+- **签名校验失败**：检查 `/etc/apt/trusted.gpg.d/apm.gpg` 或
+  `/usr/share/apm/apm-archive-keyring.gpg`，以及系统时间。
+- **安装提示越界路径**：包写入了自身目录之外；确认来源可信后使用
+  `--force-outside-paths`。
+- **卸载被拒绝**：有其它已安装包依赖它，先卸载依赖方或加 `--force`。
+- **NVIDIA**：`amber-pm-configure-nvidia-host`（或安装后的触发动作）会把主机驱动
+  文件同步到各 base 环境。
+
+## 9. 扩展与定制
+
+- 新增 base 环境：按 `Packaging-demo` 的布局构建包（`files/ace-env.tar.xz` +
+  `files/bin/ace-init` + `files/amber-ce-tools`），发布到 APM 仓库。
+- 应用包：使用 `amber-pm-convert` 生成，desktop 的 `Exec`/`TryExec` 需要加
+  `apm run <包名>` 前缀；`Icon` 使用宿主绝对路径
+  `/var/lib/apm/<包名>/files/core/...`。
+- 原生包管理实现位于 `src/usr/libexec/apm/`：
+  `apm-lib.sh`（基础）、`apm-repo.sh`（仓库/aptss 兼容）、`apm-deb.sh`（deb 解析与
+  路径安全）、`apm-db.sh`（数据库）、`apm-install.sh`（安装/卸载/升级）、
+  `apm-ss.sh`（ssinstall/ssaudit）、`apm-migrate.sh`（旧版迁移）。
+- 回归测试：`tests/run-quoting-test.sh`（运行/参数/overlay）与
+  `tests/native-pkg-test.sh`（原生包管理，本地假仓库，无需 root）。

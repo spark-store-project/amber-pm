@@ -88,17 +88,11 @@ if [ -z "$BASE_NAME" ]; then
     exit 1
 fi
 
-# 检查 base 是否存在
+# 检查 base 是否存在（1.4.0 起包直接安装在宿主 /var/lib/apm）
 BASE_DIR="/var/lib/apm/${BASE_NAME}"
 if [ ! -d "$BASE_DIR" ]; then
-    # 也检查 ace-env 内的路径
-    BASE_DIR_ALT="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASE_NAME}"
-    if [ -d "$BASE_DIR_ALT" ]; then
-        BASE_DIR="$BASE_DIR_ALT"
-    else
-        log.error "错误：基础环境不存在: $BASE_NAME"
-        exit 1
-    fi
+    log.error "错误：基础环境不存在: $BASE_NAME（请先 sudo apm install $BASE_NAME）"
+    exit 1
 fi
 
 log.info "基础环境: $BASE_NAME"
@@ -184,7 +178,7 @@ _add_base_addons() {
     for addon in "${addon_dirs[@]}"; do
         local addon_path="/var/lib/apm/${addon}"
         if [ ! -d "$addon_path" ]; then
-            addon_path="/var/lib/apm/apm/files/ace-env/var/lib/apm/${addon}"
+            addon_path="/var/lib/apm/${addon}"
         fi
 
         if [ -d "${addon_path}/files/ace-env" ]; then

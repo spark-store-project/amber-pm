@@ -7,7 +7,6 @@
 
 let
   cfg = config.programs.amber-pm;
-  apmXdgDataDir = "/var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir";
 
   aceRuntimePath = lib.makeBinPath (with pkgs; [
     bash
@@ -35,20 +34,6 @@ in
 
   config = lib.mkIf cfg.enable {
     environment.systemPackages = [ cfg.package ];
-    environment.sessionVariables.XDG_DATA_DIRS = lib.mkAfter [ apmXdgDataDir ];
-    environment.etc."systemd/user-environment-generators/60-apm".source =
-      pkgs.writeShellScript "60-apm" ''
-        apm_xdg_data_dir=${lib.escapeShellArg apmXdgDataDir}
-        xdg_data_dirs="''${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-
-        case ":$xdg_data_dirs:" in
-          *":$apm_xdg_data_dir:"*) ;;
-          *) xdg_data_dirs="$xdg_data_dirs:$apm_xdg_data_dir" ;;
-        esac
-
-        printf 'XDG_DATA_DIRS=%s\n' "$xdg_data_dirs"
-      '';
-
     programs.nix-ld.enable = lib.mkDefault true;
 
     boot.kernel.sysctl."kernel.apparmor_restrict_unprivileged_userns" = lib.mkDefault 0;
@@ -62,22 +47,18 @@ in
       if [ ! -e "$target" ]; then
         echo "APM state directory not found, initializing..."
         ${cfg.package}/bin/amber-pm-init-state
-        echo "Running ace-init for first-time setup..."
-        /var/lib/apm/apm/files/bin/ace-init
+        echo "Next step: run 'sudo apm update' to fetch the package index."
       elif [ -f "$version_file" ]; then
         stored_version="$(cat "$version_file")"
         if [ "$stored_version" != "$current_version" ]; then
-          echo "APM version changed ($stored_version -> $current_version), re-initializing..."
+          echo "APM version changed ($stored_version -> $current_version), refreshing state..."
           ${cfg.package}/bin/amber-pm-init-state --force
-          echo "Running ace-init..."
-          /var/lib/apm/apm/files/bin/ace-init
         else
-          echo "APM version unchanged ($current_version), skipping ace-init."
+          echo "APM version unchanged ($current_version), skipping state refresh."
         fi
       else
-        echo "No version file found, refreshing state and running ace-init..."
+        echo "No version file found, refreshing state..."
         ${cfg.package}/bin/amber-pm-init-state --force
-        /var/lib/apm/apm/files/bin/ace-init
       fi
     '';
   };

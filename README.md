@@ -6,9 +6,14 @@
 
 ## 简介
 
-APM 是一款基于 fuse-overlayfs，dpkg，AmberCE 容器的软件包管理系统，支持在 Debian，Fedora，Arch Linux 等发行版上运行。
+APM 是一款基于 fuse-overlayfs、bubblewrap 与 AmberCE 兼容环境的软件包管理器，支持在 Debian、Fedora、Arch Linux、NixOS 等发行版上运行。
 
 APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上环境的应用转换为 APM 应用。
+
+> **1.4.0 起包管理改为原生实现**：不再依赖 dpkg/apt，也不再携带 Ubuntu 管理环境 rootfs。
+> 仓库仍然是标准 apt 仓库（签名索引 + deb 包），因此 Debian 系发行版上的 apt / aptss /
+> 星火商店依旧可以直接管理 APM 软件包；APM 自己则用原生安装器完成安装与升级。
+> 从 1.3.x 升级的用户请执行 `sudo apm migrate` 迁移已安装的软件包。
 
 > APM 会自动从主机获取 NVIDIA 驱动文件，因此您无需担心 N 卡加速问题；
 > 
@@ -29,32 +34,54 @@ APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上
 
 ## 使用方法
 ```
-APM - Amber Package Manager 
+APM - Amber Package Manager 1.4.0
 
 Usage:
   apm [COMMAND] [OPTIONS] [PACKAGES...]
 
 Commands:
-  install           安装软件包
-  remove            卸载软件包
-  launch <package> [args...]  启动软件包（通过应用启动器）
-  run <package> [EXEC_PATH] [args...]  运行指定软件包的可执行文件（可指定容器内路径）
-  update            更新软件包信息
-  list              查看可用软件包信息
-  search            搜索软件包
-  show              展示包信息
-  clean             清除缓存软件包
-  autoremove        自动移除不需要的包
+  install <包>...        安装软件包（也支持本地 .deb 路径）
+  reinstall <包>...      重新安装
+  remove <包>...         卸载软件包
+  autoremove [<包>...]   自动卸载不再需要的依赖
+  update                 更新仓库索引（含星火服务配置）
+  upgrade                升级所有可升级的软件包
+  hold / unhold <包>...  锁定 / 解锁软件包版本
+  list                   查看已安装软件包
+  search <关键词>        搜索软件包
+  show <包>...           展示包信息
+  policy <包>...         查看已安装/候选版本
+  depends / rdepends <包>...  查看依赖 / 被依赖
+  download <包>...       下载软件包到当前目录
+  clean                  清理下载缓存
+  migrate                从旧版管理环境迁移到原生包管理
+  debug                  打印主机与 APM 调试信息
 
-  amber             彩蛋功能
-  xmp360            彩蛋功能
-  bronya            彩蛋功能
+  launch <package> [args...]  启动软件包（通过应用启动器）
+  run <package> [EXEC_PATH] [args...]  运行指定软件包的可执行文件
+  sandbox-run / bwrap-run <package> ...  沙箱化运行
+  ssinstall <包|deb>     校验星火商店来源后安装
+  ssaudit <包|deb>       只校验星火商店来源，不安装
+
+  amber / xmp360 / bronya  彩蛋功能
 
   -h, --help        显示此帮助信息
   --help-all        显示完整帮助信息
   -v, --version     展示APM版本号
-
 ```
+
+### 原生包管理（1.4.0+）
+
+- 软件包安装在 `/var/lib/apm/<包名>/`，运行方式不变（base 环境 + overlay + bwrap）。
+- 仓库索引来自星火服务端的 apt 兼容索引（`InRelease` GPG 签名 + `Packages` SHA256 校验 +
+  deb SHA256 校验），并使用和 aptss 相同的服务配置与多连接下载（aria2c，缺失时退回 curl）。
+- 支持 `--force-outside-paths`：软件包默认只允许写入自己的目录；如果要写入其它位置，
+  需要显式确认（高风险）。
+- 卸载会清理 `/var/lib/apm/<包名>` 与所有用户的 `~/.apm/<包名>`。
+- `apm debug` 只输出主机与 APM 的调试信息，不再进入交互环境。
+- 旧版管理环境（`/var/lib/apm/apm/files/ace-env`）中的软件包可用 `sudo apm migrate` 迁移。
+- 仓库与 .deb 格式未变：Debian 系宿主上的 `apt`/`aptss` 仍可直接安装 APM 包，
+  `amber-pm-convert` / `amber-pm-addons-maker` 也仍然使用 base 环境里的 aptss 制作包。
 
 ### 完整命令列表
 使用 `apm --help-all` 查看完整的命令列表，包括高级命令如 `sandbox-run`、`bwrap-run`、`hold`、`unhold`、`full-upgrade`、`download`、`ssinstall`、`ssaudit`、`debug` 等。
@@ -132,10 +159,14 @@ NixOS 本地构建、安装、module 使用以及 NUR/nixpkgs 打包复用说明
 
 ## 测试
 
-参数传递（引号/空格/特殊字符）、退出码与 overlay 挂载流程的回归测试，不需要 root，也不需要真实的 bwrap/fuse-overlayfs：
+回归测试不需要 root，也不需要真实的 bwrap/fuse-overlayfs/apt/dpkg：
 
 ```bash
+# 参数传递（引号/空格）、退出码、overlay 挂载与并发
 bash tests/run-quoting-test.sh
+
+# 原生包管理（本地假仓库：安装/升级/卸载/addons/路径安全/迁移/ssinstall 等）
+bash tests/native-pkg-test.sh
 ```
 
 ## APM 构建 Tips

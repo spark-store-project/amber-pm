@@ -49,7 +49,7 @@ linkApp() {
 
     # link application
     sysShareDir="/usr/share"
-    for folder in "$appEntriesDir/applications" "$appEntriesDir/icons" "$appEntriesDir/mime" "$appEntriesDir/glib-2.0" "$appEntriesDir/services" "$appEntriesDir/GConf" "$appEntriesDir/help" "$appEntriesDir/locale" "$appEntriesDir/fcitx"; do
+    for folder in "$appEntriesDir/applications" "$appEntriesDir/icons" "$appEntriesDir/mime" "$appEntriesDir/glib-2.0" "$appEntriesDir/services" "$appEntriesDir/pixmaps" "$appEntriesDir/GConf" "$appEntriesDir/help" "$appEntriesDir/locale" "$appEntriesDir/fcitx"; do
         if [ ! -d "$folder" ]; then
             continue
         fi
@@ -61,6 +61,20 @@ linkApp() {
             linkDir "$folder" "$sysShareDir/${folder##*/}"
         fi
     done
+
+    # 为桌面文件补齐 APM / 卸载器需要的字段
+    local apps_dir="$appEntriesDir/applications"
+    if [ -d "$apps_dir" ]; then
+        local desktop
+        while IFS= read -r -d '' desktop; do
+            if ! grep -q '^X-APM-APPID=' "$desktop"; then
+                printf 'X-APM-APPID=%s\n' "$appID" >> "$desktop"
+            fi
+            if ! grep -q '^X-Deepin-PreUninstall=' "$desktop"; then
+                printf 'X-Deepin-PreUninstall=amber-pm-app-uninstaller %s\n' "$appID" >> "$desktop"
+            fi
+        done < <(find "$apps_dir" -maxdepth 1 -type f -name '*.desktop' -print0 2>/dev/null)
+    fi
 }
 
 function exec_uos_package_link(){
@@ -114,48 +128,6 @@ function exec_uos_package_update(){
 
 }
 
-function exec_debian_compatibile_links(){
-# 源目录和目标目录定义
-local SOURCE_DIR="/var/lib/apm"
-local TARGET_DIR="/var/lib/apm/apm/files/ace-env/var/lib/apm"
-
-# 检查目标目录是否存在
-if [[ ! -d "$TARGET_DIR" ]]; then
-    mkdir -p $TARGET_DIR
-fi
-
-# 第一部分：为缺失的目录创建软链接
-echo "检查并创建缺失的软链接..."
-for dir in "$SOURCE_DIR"/*/; do
-    # 获取目录名（去掉路径和尾部斜杠）
-    dirname=$(basename "$dir")
-    
-    # 跳过 apm 目录
-    if [[ "$dirname" == "apm" ]]; then
-        continue
-    fi
-    
-    # 检查目标目录中是否已存在对应的软链接或目录
-    target_link="$TARGET_DIR/$dirname"
-    if [[ ! -e "$target_link" ]]; then
-        echo "创建软链接: $target_link -> $dir"
-        ln -sv "$dir" "$target_link"
-    fi
-done
-
-# 第二部分：清理无效的软链接
-echo "清理无效的软链接..."
-for link in "$TARGET_DIR"/*; do
-    # 检查是否为软链接
-    if [[ -L "$link" ]]; then
-        # 检查软链接是否有效（指向的目标是否存在）
-        if [[ ! -e "$link" ]]; then
-            echo "删除无效软链接: $link"
-            rm "$link"
-        fi
-    fi
-done
-}
 #########################################################################################
 echo "----------------Running APM Dstore Patch----------------"
 
@@ -167,8 +139,5 @@ exec_uos_package_link
 exec_link_clean
 wait
 exec_uos_package_update
-if [[ "${IS_APM_ENV}" = "" ]];then
-exec_debian_compatibile_links
-fi
 
 echo "----------------Finished----------------"

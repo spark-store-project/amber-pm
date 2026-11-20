@@ -22,7 +22,6 @@ trap 'rm -rf -- "$WORK"' EXIT
 BASH_BIN="${BASH:-/bin/bash}"
 ACE_RUN="$REPO_ROOT/src/var/lib/apm/apm/files/ace-run"
 ACE_RUN_PKG="$REPO_ROOT/src/var/lib/apm/apm/files/ace-run-pkg"
-ACE_RUN_DEBUG="$REPO_ROOT/src/var/lib/apm/apm/files/bin/ace-run"
 APM_MAIN="$REPO_ROOT/src/usr/libexec/apm/apm-main"
 APP_LAUNCHER="$REPO_ROOT/src/usr/bin/amber-pm-app-launcher"
 
@@ -218,7 +217,7 @@ line2'
     '~root'
 )
 
-for entry in "$ACE_RUN" "$ACE_RUN_PKG" "$ACE_RUN_DEBUG"; do
+for entry in "$ACE_RUN" "$ACE_RUN_PKG"; do
     name="$(basename -- "$entry")（$(basename -- "$(dirname -- "$entry")")）"
     expect_entry_args "$name: 引号/空格/特殊字符保真" "$entry" "${TRICKY_ARGS[@]}"
     expect_entry_args "$name: 单个参数" "$entry" 'plain'
@@ -312,17 +311,22 @@ for args in "" "bash"; do
 done
 
 # --- 3. apm-main：参数、退出码、overlay 流程 -------------------------------
-mkdir -p "$WORK/prefix/var/lib/apm/app/files/core" \
-         "$WORK/prefix/var/lib/apm/app/files/work" \
-         "$WORK/prefix/var/lib/apm/base/files/ace-env"
-printf 'base\n' > "$WORK/prefix/var/lib/apm/app/info"
+# 新版 apm-main 直接使用 APM_STATE_DIR 下的包目录（/var/lib/apm 的测试重定向）
+mkdir -p "$WORK/state/app/files/core" \
+         "$WORK/state/app/files/work" \
+         "$WORK/state/base/files/ace-env"
+printf 'base\n' > "$WORK/state/app/info"
+OPTS_DIR="$WORK/runtime"
 
 run_apm() {
     env -i \
         PATH="$WORK/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
         HOME="$WORK/home" \
         TMPDIR="$WORK/tmp" \
-        PATH_PREFIX="$WORK/prefix/" \
+        APM_STATE_DIR="$WORK/state" \
+        APM_DEBUG=1 \
+        XDG_RUNTIME_DIR="$OPTS_DIR" \
+        TMPDIR="$WORK/tmp" \
         APM_RUN_EXEC="$WORK/bin/fake-ace-run" \
         FUSE_LOG="$WORK/fuse.log" \
         UMOUNT_LOG="$WORK/umount.log" \
@@ -342,8 +346,8 @@ umount_calls() {
     if [ -f "$WORK/umount-calls" ]; then wc -l < "$WORK/umount-calls"; else echo 0; fi
 }
 
-# 挂载点固定在 TMPDIR/apm-run-<uid>/<包名>，同名包共享
-shared_dir="$WORK/tmp/apm-run-$(id -u)/app"
+# 挂载点固定在 XDG_RUNTIME_DIR/apm-run/<包名>，同名包共享
+shared_dir="$OPTS_DIR/apm-run/app"
 
 # --- 3.1 基本运行 ---
 reset_mount_state
@@ -361,9 +365,9 @@ assert_contains "apm run 的日志写到 stderr" "$(cat -- "$WORK/apm-stderr.log
 mount_dir="$(sed -n '3p' "$WORK/fuse.log")"
 overlay_opts="$(sed -n '2p' "$WORK/fuse.log")"
 assert_eq "应用包挂载点是按包共享的固定路径" "$shared_dir" "$mount_dir"
-assert_contains "应用包 lowerdir 指向 base 层" "$overlay_opts" "lowerdir=$WORK/prefix/var/lib/apm/base/files/ace-env"
-assert_contains "应用包 upperdir 使用自己的 files/core" "$overlay_opts" "upperdir=$WORK/prefix/var/lib/apm/app/files/core"
-assert_contains "应用包 workdir 使用自己的 files/work" "$overlay_opts" "workdir=$WORK/prefix/var/lib/apm/app/files/work"
+assert_contains "应用包 lowerdir 指向 base 层" "$overlay_opts" "lowerdir=$WORK/state/base/files/ace-env"
+assert_contains "应用包 upperdir 使用自己的 files/core" "$overlay_opts" "upperdir=$WORK/state/app/files/core"
+assert_contains "应用包 workdir 使用自己的 files/work" "$overlay_opts" "workdir=$WORK/state/app/files/work"
 assert_eq "apm-main 传给容器的 chrootEnvPath 就是挂载点" "RUN_CHROOT=$mount_dir" "$(printf '%s\n' "$out" | grep '^RUN_CHROOT=')"
 if [ -e "$mount_dir" ]; then fail "挂载点未清理：$mount_dir"; else pass; fi
 assert_eq "最后一个实例退出时卸载一次" "1" "$(umount_calls)"
@@ -424,11 +428,11 @@ rc=$?
 assert_eq "apm run <base 包> 返回 0" "0" "$rc"
 assert_contains "base 包可以运行" "$out" 'RUN_PKG=base'
 overlay_opts="$(sed -n '2p' "$WORK/fuse.log")"
-assert_contains "base 包把自己作为 lowerdir" "$overlay_opts" "lowerdir=$WORK/prefix/var/lib/apm/base/files/ace-env"
+assert_contains "base 包把自己作为 lowerdir" "$overlay_opts" "lowerdir=$WORK/state/base/files/ace-env"
 assert_contains "base 包使用一次性 upperdir" "$overlay_opts" "upperdir=$WORK/tmp/apm-overlay-base."
-assert_not_contains "base 包的 upperdir 不在包目录里" "$overlay_opts" "upperdir=$WORK/prefix/"
+assert_not_contains "base 包的 upperdir 不在包目录里" "$overlay_opts" "upperdir=$WORK/state/"
 assert_contains "base 包使用独立挂载点" "$(sed -n '3p' "$WORK/fuse.log")" "$WORK/tmp/apm-mnt-base."
-leftover="$(find "$WORK/tmp" -maxdepth 1 -mindepth 1 \( -name 'apm-mnt-*' -o -name 'apm-overlay-*' \) -print -quit)"
+leftover="$(find "$WORK/tmp" "$OPTS_DIR" -maxdepth 1 -mindepth 1 \( -name 'apm-mnt-*' -o -name 'apm-overlay-*' \) -print -quit)"
 assert_eq "base 包运行后临时目录已清理" "" "$leftover"
 
 # --- 3.7 真正挂载失败（没有可复用的挂载）：报错退出，不执行命令 ---
@@ -440,13 +444,13 @@ assert_eq "overlay 挂载失败时返回非 0" "1" "$rc"
 assert_contains "挂载失败有明确错误信息" "$(cat -- "$WORK/apm-stderr.log")" 'Failed to mount overlayfs'
 assert_not_contains "挂载失败后不执行用户命令" "$out" 'RUN_ARGC'
 assert_eq "挂载失败后不调用 umount" "0" "$(umount_calls)"
-leftover="$(find "$WORK/tmp" -maxdepth 1 -mindepth 1 \( -name 'apm-mnt-*' -o -name 'apm-overlay-*' \) -print -quit)"
+leftover="$(find "$WORK/tmp" "$OPTS_DIR" -maxdepth 1 -mindepth 1 \( -name 'apm-mnt-*' -o -name 'apm-overlay-*' \) -print -quit)"
 assert_eq "挂载失败后没有残留临时目录" "" "$leftover"
 rm -f "$WORK/fuse-fail"
 
 # --- 4. apm launch：附加参数不能被拆开 ------------------------------------
-mkdir -p "$WORK/prefix/var/lib/apm/app/entries/applications"
-cat > "$WORK/prefix/var/lib/apm/app/entries/applications/app.desktop" <<'EOF'
+mkdir -p "$WORK/launcher/app/entries/applications"
+cat > "$WORK/launcher/app/entries/applications/app.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Test App
@@ -456,7 +460,7 @@ EOF
 out="$(
     env -i PATH="$WORK/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
         HOME="$WORK/home" SHELL=/bin/bash \
-        PATH_PREFIX="$WORK/prefix" \
+        APM_STATE_DIR="$WORK/launcher" \
         "$BASH_BIN" "$APP_LAUNCHER" app '/tmp/file with space.txt' 'a"b' 2>/dev/null
 )"
 rc=$?

@@ -1,20 +1,24 @@
 #!/bin/bash
 VERSION=@VERSION@
+APM_VERSION="$VERSION"
 # 获取脚本名称用于帮助信息
 SCRIPT_NAME=$(basename "$0")
-# APM 容器根目录。允许通过环境变量覆盖（测试 / 自定义安装位置），
-# 与 AGENTS.md 中关于 PATH_PREFIX 的说明保持一致。
-PATH_PREFIX="${PATH_PREFIX:-/var/lib/apm/apm/files/ace-env/}"
-PATH_PREFIX="${PATH_PREFIX%/}"
 # 进入容器执行命令的入口脚本
 APM_RUN_EXEC="${APM_RUN_EXEC:-/var/lib/apm/apm/files/ace-run}"
 
-# 日志统一写到 stderr：stdout 只留给命令本身的输出，
-# 这样 `apm run <包> <命令> > 文件` 或命令替换都不会被日志污染。
-log.warn()  { printf '[\033[33mWARN\033[0m]:  \033[1m%s\033[0m\n' "$*" >&2; }
-log.error() { printf '[\033[31mERROR\033[0m]: \033[1m%s\033[0m\n' "$*" >&2; }
-log.info()  { printf '[\033[96mINFO\033[0m]:  \033[1m%s\033[0m\n' "$*" >&2; }
-log.debug() { printf '[\033[32mDEBUG\033[0m]: \033[1m%s\033[0m\n' "$*" >&2; }
+# ---------------------------------------------------------------------------
+# 加载原生包管理实现（本版本起不再依赖 apt/dpkg，也不再需要管理环境 rootfs）
+# ---------------------------------------------------------------------------
+_apm_self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+_apm_lib_dir="$(dirname -- "$_apm_self")"
+for _apm_lib in apm-lib.sh apm-repo.sh apm-deb.sh apm-db.sh apm-install.sh apm-ss.sh apm-migrate.sh; do
+    if [ ! -r "$_apm_lib_dir/$_apm_lib" ]; then
+        echo "apm: 缺少 $_apm_lib（APM 安装可能不完整）" >&2
+        exit 1
+    fi
+    # shellcheck disable=SC1090
+    . "$_apm_lib_dir/$_apm_lib"
+done
 
 # 帮助信息函数
 show_help() {
@@ -24,18 +28,33 @@ APM - Amber Package Manager ${VERSION}
 Usage:
   $SCRIPT_NAME [COMMAND] [OPTIONS] [PACKAGES...]
 
-
 Commands:
-  install           安装软件包
-  remove            卸载软件包
+  install <包>...        安装软件包（也支持本地 .deb 路径）
+  reinstall <包>...      重新安装
+  remove <包>...         卸载软件包
+  autoremove [<包>...]   自动卸载不再需要的依赖（可同时卸载指定包）
+  update                 更新仓库索引（含星火服务配置）
+  upgrade                升级所有可升级的软件包
+  hold / unhold <包>...  锁定 / 解锁软件包版本
+  list                   查看已安装软件包
+  search <关键词>        搜索软件包
+  show <包>...           展示包信息
+  policy <包>...         查看已安装/候选版本
+  depends / rdepends <包>...  查看依赖 / 被依赖
+  download <包>...       下载软件包到当前目录
+  clean                  清理下载缓存
+  migrate                从旧版管理环境迁移到原生包管理
+  debug                  打印主机与 APM 调试信息
+
   launch <package> [args...]  启动软件包（通过应用启动器）
   run <package> [EXEC_PATH] [args...]  运行指定软件包的可执行文件（可指定容器内路径）
-  update            更新软件包信息
-  list              查看可用软件包信息
-  search            搜索软件包
-  show              展示包信息
-  clean             清除缓存软件包
-  autoremove        自动移除不需要的包
+  sandbox-run <package> [EXEC_PATH] [args...] 运行指定软件包的可执行文件（主目录沙箱化）
+  bwrap-run <package> [EXEC_PATH] [args...] 运行指定软件包的可执行文件（使用 bwrap）
+  ssinstall <包|deb>     校验星火商店来源后安装（兼容旧 ssinstall）
+  ssaudit <包|deb>       只校验星火商店来源，不安装
+
+  install 选项:
+    --force-outside-paths  允许包写入自身目录之外（高风险，默认拒绝）
 
   amber             彩蛋功能
   xmp360            彩蛋功能
@@ -49,47 +68,22 @@ Commands:
 EOF
 }
 
-# 完整帮助信息函数
 show_help_all() {
+    show_help
     cat <<EOF
-APM - Amber Package Manager ${VERSION}
 
-Usage:
-  $SCRIPT_NAME [COMMAND] [OPTIONS] [PACKAGES...]
+说明:
+  APM 的包管理已改为原生实现：直接从星火 APM 仓库（apt 兼容格式）获取索引，
+  校验签名与哈希后解包安装，不再调用 apt/dpkg，也不再需要管理环境 rootfs。
+  软件包仍然安装在 /var/lib/apm/<包名>/，运行方式（overlay + bwrap）不变。
 
+  * 安装需要 root：sudo apm install <包>
+  * 包默认只能写自己的目录；try 写别处时会被拒绝，确认可信可用
+    --force-outside-paths 强制安装
+  * 版本锁定（hold）后，apm upgrade 会跳过该包
+  * 旧版（1.3.x）用户请先执行 sudo apm migrate 迁移已安装的包
 
-Commands:
-  install           安装软件包
-  remove            卸载软件包
-  launch <package> [args...]  启动软件包（通过应用启动器）
-  run <package> [EXEC_PATH] [args...]  运行指定软件包的可执行文件（可指定容器内路径）
-  sandbox-run <package> [EXEC_PATH] [args...] 运行指定软件包的可执行文件（主目录沙箱化）
-  bwrap-run <package> [EXEC_PATH] [args...] 运行指定软件包的可执行文件（使用 bwrap）
-
-  update            更新软件包信息
-  hold              锁定软件包版本
-  unhold            解锁软件包版本
-  full-upgrade      升级全部软件包
-  list              查看可用软件包信息
-  search            搜索软件包
-
-  download          下载包
-  show              展示包信息
-  clean             清除缓存软件包
-  autoremove        自动移除不需要的包
-  ssinstall <path>    使用 ssinstall 进行本地软件安装，详情见 spark-store
-  ssaudit <path>    使用 ssaudit 进行本地软件安装，详情见 spark-store
-  debug             显示调试系统信息并进入调试环境
-
-  amber             彩蛋功能
-  xmp360            彩蛋功能
-  bronya            彩蛋功能
-
-  -h, --help        显示简要帮助信息
-  --help-all        显示此完整帮助信息
-  -v, --version     展示APM版本号
-
-                                            本 APM 具有兔兔伯爵，女武神装甲和超级大运之力。
+  调试: APM_DEBUG=1 输出调试日志；APM_ROOT=<目录> 可把数据目录重定向到测试目录
 EOF
 }
 
@@ -343,11 +337,6 @@ _apm_overlay_cleanup() {
 }
 
 # =============================================================================
-# 在应用容器中执行命令
-#   $1     包名（决定 overlay 的上层与优先级）
-#   $2...  要执行的命令及其参数：原样传到容器内，不做任何字符串拼接
-#          （引号/空格/换行等安全处理见 ace-run-lib.sh）
-# =============================================================================
 apm_exec(){
     local coredir="$1"
     shift
@@ -356,7 +345,7 @@ apm_exec(){
     local env_layers=()
     local addon_envs=()
     local processed_addon_pkgs=()
-    local current_dir="${PATH_PREFIX}/var/lib/apm/${coredir}"
+    local current_dir="${APM_STATE_DIR}/${coredir}"
 
     _APM_OVERLAY_MOUNT_DIR=""
     _APM_OVERLAY_TEMP_DIR=""
@@ -379,10 +368,10 @@ apm_exec(){
         local layer_dir
         local existing
 
-        if [ -d "${PATH_PREFIX}/var/lib/apm/${pkgname}/files/ace-env" ]; then
-            layer_dir="${PATH_PREFIX}/var/lib/apm/${pkgname}/files/ace-env"
-        elif [ -d "${PATH_PREFIX}/var/lib/apm/${pkgname}/files/core" ]; then
-            layer_dir="${PATH_PREFIX}/var/lib/apm/${pkgname}/files/core"
+        if [ -d "${APM_STATE_DIR}/${pkgname}/files/ace-env" ]; then
+            layer_dir="${APM_STATE_DIR}/${pkgname}/files/ace-env"
+        elif [ -d "${APM_STATE_DIR}/${pkgname}/files/core" ]; then
+            layer_dir="${APM_STATE_DIR}/${pkgname}/files/core"
         else
             return 1
         fi
@@ -399,7 +388,7 @@ apm_exec(){
     # ---------------------------------------------------------------------
     _apm_resolve_addons() {
         local pkgname="$1"
-        local pkg_dir="${PATH_PREFIX}/var/lib/apm/${pkgname}"
+        local pkg_dir="${APM_STATE_DIR}/${pkgname}"
         local addon_file
         local addon_name
         local addon
@@ -434,8 +423,8 @@ apm_exec(){
                 log.warn "Addon layer not found: $addon"
                 continue
             fi
-            if [ -f "${PATH_PREFIX}/var/lib/apm/${addon}/info_env" ]; then
-                addon_envs+=("${PATH_PREFIX}/var/lib/apm/${addon}/info_env")
+            if [ -f "${APM_STATE_DIR}/${addon}/info_env" ]; then
+                addon_envs+=("${APM_STATE_DIR}/${addon}/info_env")
             fi
         done
     }
@@ -477,16 +466,16 @@ apm_exec(){
         # 继续沿最后一层往上递归
         local next_basedir
         next_basedir="$(tail -n 1 "$info_file")"
-        if [ -z "$next_basedir" ] || [ ! -d "${PATH_PREFIX}/var/lib/apm/${next_basedir}" ]; then
+        if [ -z "$next_basedir" ] || [ ! -d "${APM_STATE_DIR}/${next_basedir}" ]; then
             break
         fi
-        current_dir="${PATH_PREFIX}/var/lib/apm/${next_basedir}"
+        current_dir="${APM_STATE_DIR}/${next_basedir}"
     done
 
     # ---------------------------------------------------------------------
     # info_layer_override（最高优先级）
     # ---------------------------------------------------------------------
-    local override_file="${PATH_PREFIX}/var/lib/apm/${coredir}/info_layer_override"
+    local override_file="${APM_STATE_DIR}/${coredir}/info_layer_override"
     if [ -f "$override_file" ]; then
         log.debug "Found info_layer_override: $override_file"
 
@@ -497,7 +486,7 @@ apm_exec(){
 
         while IFS= read -r override_dir; do
             [ -n "$override_dir" ] || continue
-            override_base="${PATH_PREFIX}/var/lib/apm/${override_dir}"
+            override_base="${APM_STATE_DIR}/${override_dir}"
             if [ -d "${override_base}/files/ace-env" ]; then
                 override_dirs+=("${override_base}/files/ace-env")
             elif [ -d "${override_base}/files/core" ]; then
@@ -538,15 +527,15 @@ apm_exec(){
         return 1
     fi
 
-    local upper="${PATH_PREFIX}/var/lib/apm/${coredir}/files/core"
-    local workdir="${PATH_PREFIX}/var/lib/apm/${coredir}/files/work"
+    local upper="${APM_STATE_DIR}/${coredir}/files/core"
+    local workdir="${APM_STATE_DIR}/${coredir}/files/work"
     local need_temp=0
     local layer
 
     if [ ! -d "$upper" ]; then
         need_temp=1
         # 应用包（有 info）正常应带 files/core；缺失时明确提示，避免静默退化成 base 环境
-        if [ -f "${PATH_PREFIX}/var/lib/apm/${coredir}/info" ]; then
+        if [ -f "${APM_STATE_DIR}/${coredir}/info" ]; then
             log.warn "Package $coredir has no files/core, using a temporary writable layer"
         fi
     fi
@@ -569,7 +558,7 @@ apm_exec(){
     fi
 
     # 纯 base 层没有持久可写层：容器内的修改在退出后全部丢弃
-    if [ "$need_temp" = "1" ] && [ ! -f "${PATH_PREFIX}/var/lib/apm/${coredir}/info" ]; then
+    if [ "$need_temp" = "1" ] && [ ! -f "${APM_STATE_DIR}/${coredir}/info" ]; then
         log.warn "Package $coredir is a base layer: changes inside the container will be discarded on exit"
     fi
 
@@ -653,6 +642,7 @@ apm_exec(){
     return "$rc"
 }
 
+
 # 启动应用：通过 amber-pm-app-launcher 运行
 apm_launch() {
     local pkg="$1"
@@ -661,139 +651,196 @@ apm_launch() {
         log.error "Package name required for 'launch' command"
         return 1
     fi
-
-    # 包目录既可能在容器根目录里，也可能直接装在宿主 /var/lib/apm 下
-    if [ -d "${PATH_PREFIX}/var/lib/apm/$pkg" ]; then
-        :
-    elif [ -d "/var/lib/apm/$pkg" ]; then
-        PATH_PREFIX=""
-    else
+    if [ ! -d "$APM_STATE_DIR/$pkg" ]; then
         log.error "Package not installed: $pkg"
         return 1
     fi
-
-    # 把容器前缀传给启动器（用于定位桌面文件），不改变当前 shell 的变量
-    local launch_prefix="${PATH_PREFIX%/}"
-    PATH_PREFIX="$launch_prefix" amber-pm-app-launcher "$pkg" "$@"
+    amber-pm-app-launcher "$pkg" "$@"
     return $?
 }
 
-# 调试信息函数
-debug_info() {
-    log.debug "======= APM Debug Information ======="
-    log.debug "User: $(whoami)"
-    log.debug "Hostname: $(hostname)"
-    log.debug "OS: $(lsb_release -ds 2>/dev/null || uname -om)"
-    log.debug "Kernel: $(uname -sr)"
-    log.debug "Bash Version: ${BASH_VERSION}"
-    log.debug "APT Version: $(apt --version | head -n1)"
-    log.debug "APM APT Version: $(amber-pm-debug apt --version | head -n1)"
-    log.debug "====================================="
+# =============================================================================
+# apm debug —— 只打印调试信息（主机信息 + APM 自身信息），不再进入交互环境
+# =============================================================================
+apm_debug_info() {
+    _section() { printf '\n== %s ==\n' "$*"; }
 
-amber-pm-debug "$@"
+    printf 'APM 调试信息（%s）\n' "$APM_VERSION"
 
-}
+    _section "主机"
+    printf '内核:       %s\n' "$(uname -srm)"
+    printf '发行版:     %s\n' "$( . /etc/os-release 2>/dev/null && printf '%s (%s %s)' "${PRETTY_NAME:-未知}" "${ID:-?}" "${VERSION_ID:-}"; )"
+    printf '架构:       %s（APM 识别为 %s）\n' "$(uname -m)" "$APM_ARCH"
+    printf '桌面/会话:  %s / %s\n' "${XDG_CURRENT_DESKTOP:-未知}" "${XDG_SESSION_TYPE:-未知}"
+    printf '用户:       %s (uid=%s, euid=%s)\n' "$(id -un)" "$(id -u)" "$EUID"
+    printf 'Shell:      %s\n' "${SHELL:-未知}"
+    printf '工作目录:   %s\n' "$(pwd)"
+    printf 'PATH:       %s\n' "$PATH"
+    printf 'XDG 目录:   DATA_HOME=%s CONFIG_HOME=%s RUNTIME_DIR=%s\n' \
+        "${XDG_DATA_HOME:-未设置}" "${XDG_CONFIG_HOME:-未设置}" "${XDG_RUNTIME_DIR:-未设置}"
+    printf '权限:       %s\n' "$([ "$(id -u)" = "0" ] && echo root || echo 非 root（安装/卸载需要 sudo）)"
 
+    _section "APM"
+    printf '版本:       %s\n' "$APM_VERSION"
+    printf '程序目录:   %s\n' "$_apm_lib_dir"
+    printf '数据目录:   %s\n' "$APM_STATE_DIR"
+    printf '仓库地址:   %s\n' "$(apm_repo_url 2>/dev/null || echo 未知)"
+    printf '仓库索引:   %s\n' "$(
+        if [ -s "$APM_PACKAGES_FILE" ]; then
+            n="$(grep -c '^Package: ' "$APM_PACKAGES_FILE" 2>/dev/null || echo 0)"
+            t="$(apm_repo_meta_value updated_text 2>/dev/null || echo 未知)"
+            printf '%s 个包，更新于 %s' "$n" "$t"
+        else
+            printf '尚未更新（apm update）'
+        fi
+    )"
+    printf '公钥:       %s\n' "$(apm_repo_keyring 2>/dev/null || echo '未找到（需 gpgv 校验）')"
+    printf '签名校验:   %s\n' "$([ "$APM_INSECURE" = "1" ] && echo '已禁用（APM_INSECURE=1）' || echo 启用)"
+    printf '已安装:     %s 个\n' "$(apm_db_count)"
+    local p
+    for p in $(apm_db_list); do
+        printf '  - %-32s %-18s %s%s\n' "$p" "$(apm_db_version "$p")" \
+            "$(apm_db_arch "$p")" "$([ "$(apm_db_held "$p")" = "1" ] && echo ' [hold]')"
+    done
+    printf '数据占用:   %s\n' "$(du -sh -- "$APM_STATE_DIR" 2>/dev/null | cut -f1 || echo 未知)"
+    printf '下载缓存:   %s\n' "$(du -sh -- "$APM_CACHE_DIR" 2>/dev/null | cut -f1 || echo 0)"
+    printf '下载参数:   split=%s minsplit=%s piece=%s retry=%s maxnum=%s maxconn=%s\n' \
+        "$APM_SPLITCON" "$APM_MINSPLITSZ" "$APM_PIECEALGO" "$APM_MAXRETRY" "$APM_MAXNUM" "$APM_MAXCONPERSRV"
 
-apm-nvidia-toggle(){
+    _section "运行环境"
+    printf 'bwrap:         %s\n' "$(command -v bwrap || echo 未安装)"
+    printf 'fuse-overlayfs: %s\n' "$(command -v fuse-overlayfs || echo 未安装)"
+    printf 'curl:          %s\n' "$(command -v curl || echo 未安装)"
+    printf 'aria2c:        %s\n' "$(command -v aria2c || echo 未安装（将使用 curl）)"
+    printf 'gpgv:          %s\n' "$(command -v gpgv || echo 未安装)"
+    printf 'tar/xz/zstd:   %s / %s / %s\n' "$(command -v tar || echo 未安装)" \
+        "$(command -v xz || echo 未安装)" "$(command -v zstd || echo 未安装)"
 
-# APM 基础路径
-APM_BASE="${PATH_PREFIX}/var/lib/apm"
+    _section "base 环境"
+    local base_found=0 d
+    for d in "$APM_STATE_DIR"/*/files/ace-env; do
+        [ -d "$d" ] || continue
+        base_found=1
+        printf '  %-32s %s %s\n' "$(basename -- "$(dirname -- "$(dirname -- "$d")")")" \
+            "$(du -sh -- "$d" 2>/dev/null | cut -f1)" \
+            "$([ -e "$d/finish.flag" ] && echo '[已初始化]' || echo '[未初始化?]')"
+    done
+    [ "$base_found" = "1" ] || printf '  （无）\n'
 
-# 检查基础目录是否存在
-if [[ ! -d "$APM_BASE" ]]; then
-    echo "错误: 目录 $APM_BASE 不存在"
-    exit 1
-fi
-
-# 遍历 /var/lib/apm 下的所有目录
-for dir in "$APM_BASE"/*/; do
-    # 移除末尾的斜杠得到纯目录名
-    dir="${dir%/}"
-
-    # 提取目录名（不包括完整路径）
-    dirname=$(basename "$dir")
-    # 检查目标文件是否存在
-    target_file="${APM_BASE}/${dirname}/files/ace-env"
-    if [[ -e "$target_file" ]]; then
-
-        # 将目录传递给 amber-pm-configure-nvidia
-        amber-pm-configure-nvidia "$target_file"
-
-
+    _section "overlay 挂载"
+    if command -v mountpoint >/dev/null 2>&1; then
+        local line
+        while IFS= read -r line; do
+            printf '  %s\n' "$line"
+        done < <(mount 2>/dev/null | grep -F 'apm-run' || true)
+    else
+        printf '  未安装 mountpoint（util-linux）\n'
     fi
-done
+
+    _section "环境变量覆盖"
+    local shown=0 v
+    for v in APM_ROOT APM_STATE_DIR APM_REPO_URL APM_SPARK_URL APM_KEYRING \
+             APM_INSECURE APM_DEBUG APM_NO_TRIGGERS APM_DOWNLOAD_ENGINE APM_HOME_DIRS; do
+        if [ -n "${!v:-}" ]; then
+            printf '  %s=%s\n' "$v" "${!v}"
+            shown=1
+        fi
+    done
+    [ "$shown" = "1" ] || printf '  （无）\n'
+
+    printf '\n'
+    return 0
 }
 
-# 主命令处理
+# =============================================================================
+# 命令分发
+# =============================================================================
 case "$1" in
-    install|full-upgrade|upgrade|reinstall)
-    command=$1
-    shift
-    amber-pm-debug aptss "$command" "$@"
-    exit_code=$?
-
-    # 如果第一次执行失败，尝试修复并重试
-    if [ $exit_code -ne 0 ]; then
-        log.warn "Command failed, attempting to fix with dpkg --configure -a..."
-        amber-pm-debug dpkg --configure -a
-        log.info "Retrying $command..."
-        amber-pm-debug aptss "$command" "$@"
-        exit_code=$?
-    fi
-
-    if [ $exit_code -eq 0 ]; then
-        log.info "Operation successful"
-    else
-        log.error "Error: Operation failed"
-        exit $exit_code
-    fi
-    amber-pm-debug amber-pm-dstore-patch
-    apm-nvidia-toggle
-    amber-pm-desktop-fix
-    update-mime-database /var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir/mime > /dev/null 2>&1 &
-    ;;
-    download|search|policy|list|update|clean|show|depends|rdepends|changelog|moo)
-    command=$1
-    shift
-    amber-pm-debug aptss "$command" "$@"
-        exit_code=$?
-    if [ $exit_code -eq 0 ]; then
-        log.info "Operation successful"
-    else
-        log.error "Error: Operation failed"
-        exit $exit_code
-    fi
-    ;;
-    hold|unhold)
-    command=$1
-    shift
-    amber-pm-debug apt-mark "$command" "$@"
-        exit_code=$?
-    if [ $exit_code -eq 0 ]; then
-        log.info "Operation successful"
-    else
-        log.error "Error: Operation failed"
-        exit $exit_code
-    fi
-    ;;
-
-   remove|autoremove|purge|autopurge)
-        # 特殊APT命令：移除第一个参数后传递其余参数
-        command=$1
+    install)
         shift
-        amber-pm-debug aptss "$command" "$@"
-        exit_code=$?
-    if [ $exit_code -eq 0 ]; then
-        log.info "Operation successful"
-    else
-        log.error "Error: Operation failed"
-        exit $exit_code
-    fi
-        amber-pm-debug amber-pm-dstore-patch
-        amber-pm-desktop-fix
+        apm_cmd_install "$@"
+        exit $?
         ;;
-   launch)
+    reinstall)
+        shift
+        apm_cmd_install --reinstall "$@"
+        exit $?
+        ;;
+    remove | purge)
+        shift
+        apm_cmd_remove "$@"
+        exit $?
+        ;;
+    autoremove | autopurge)
+        shift
+        apm_cmd_autoremove "$@"
+        exit $?
+        ;;
+    update)
+        shift
+        apm_repo_update --refresh
+        exit $?
+        ;;
+    upgrade | full-upgrade | dist-upgrade)
+        shift
+        apm_cmd_upgrade "$@"
+        exit $?
+        ;;
+    hold)
+        shift
+        apm_cmd_hold "$@"
+        exit $?
+        ;;
+    unhold)
+        shift
+        apm_cmd_unhold "$@"
+        exit $?
+        ;;
+    list)
+        shift
+        apm_cmd_list "$@"
+        exit $?
+        ;;
+    search)
+        shift
+        apm_cmd_search "$@"
+        exit $?
+        ;;
+    show)
+        shift
+        apm_cmd_show "$@"
+        exit $?
+        ;;
+    policy)
+        shift
+        apm_cmd_policy "$@"
+        exit $?
+        ;;
+    depends)
+        shift
+        apm_cmd_depends "$@"
+        exit $?
+        ;;
+    rdepends)
+        shift
+        apm_cmd_rdepends "$@"
+        exit $?
+        ;;
+    download)
+        shift
+        apm_cmd_download "$@"
+        exit $?
+        ;;
+    clean)
+        shift
+        apm_cmd_clean "$@"
+        exit $?
+        ;;
+    changelog)
+        log.error "APM 仓库不提供 changelog（旧版 apt 的该命令已移除）"
+        exit 1
+        ;;
+    launch)
         shift
         apm_launch "$@"
         exit_code=$?
@@ -804,107 +851,91 @@ case "$1" in
             exit $exit_code
         fi
         ;;
-   run)
-        # 运行包命令：第二个参数必须是包名
+    run)
         if [ -z "$2" ]; then
             log.error "Package name required for 'run' command"
             show_help
             exit 1
         fi
-
         pkg="$2"
-        shift 2  # 移除 'run' 和包名
-
-        # 包目录既可能在容器根目录里，也可能直接装在宿主 /var/lib/apm 下
-        if [ -d "${PATH_PREFIX}/var/lib/apm/$pkg" ]; then
-            :
-        elif [ -d "/var/lib/apm/$pkg" ]; then
-            PATH_PREFIX=""
-        else
+        shift 2
+        if [ ! -d "$APM_STATE_DIR/$pkg" ]; then
             log.error "Package not installed: $pkg"
             exit 1
         fi
-
-        # 检测是否有额外命令参数
         if [ $# -gt 0 ]; then
-            # 有额外参数：在容器里执行用户提供的命令，退出码原样返回
             log.info "Running user command: $*"
             apm_exec "$pkg" "$@"
             exit $?
         else
-            # 没有额外参数：提示用户改用 launch，并自动调用 launch
             log.info "未指定可执行文件路径。如果希望在未指定容器路径的情况下启动应用程序，推荐使用 \"launch\" 命令"
             log.info "正在启动：$SCRIPT_NAME launch $pkg"
             apm_launch "$pkg"
             exit $?
         fi
         ;;
-   sandbox-run)
-        # 运行包命令：第二个参数必须是包名
+    sandbox-run)
         export APM_USE_SANDBOX=1
         shift
         "$0" run "$@"
         ;;
-   bwrap-run)
-        # 运行包命令：使用特殊的挂载参数以支持bwrap
+    bwrap-run)
         export APM_USE_BWRAP=1
         shift
         "$0" run "$@"
         ;;
-    debug)
+    ssinstall)
         shift
-        debug_info "$@"
+        apm_cmd_ssinstall "$@"
+        exit $?
         ;;
     ssaudit)
-        amber-pm-debug dpkg --configure -a
-        amber-pm-debug ssaudit "$@" --native
-        exit_code=$?
-    if [ $exit_code -eq 0 ]; then
-        log.info "Operation successful"
-    else
-        log.error "Error: Operation failed"
-        exit $exit_code
-    fi
-        amber-pm-debug amber-pm-dstore-patch
-        amber-pm-desktop-fix
-
+        shift
+        apm_cmd_ssaudit "$@"
+        exit $?
         ;;
-    ssinstall)
-        amber-pm-debug dpkg --configure -a
-        amber-pm-debug ssinstall "$@" --native
-        exit_code=$?
-    if [ $exit_code -eq 0 ]; then
-        log.info "Operation successful"
-    else
-        log.error "Error: Operation failed"
-        exit $exit_code
-    fi
-        amber-pm-debug amber-pm-dstore-patch
-        amber-pm-desktop-fix
-
+    migrate)
+        shift
+        apm_cmd_migrate "$@"
+        exit $?
         ;;
-    -h|--help)
+    debug)
+        apm_debug_info
+        ;;
+    moo)
+        cat <<'MOO'
+         (__)
+         (oo)
+   /------\/
+  / |    ||
+ *  /\---/\
+    ~~   ~~
+...."Have you mooed today?"...
+MOO
+        ;;
+    -h | --help)
         show_help
         ;;
     --help-all)
         show_help_all
         ;;
-    -v|--version)
+    -v | --version)
         echo "$VERSION"
         ;;
     amber)
-        source /usr/libexec/apm/apm-eggs
+        source "$_apm_lib_dir/apm-eggs"
         amber_egg
         ;;
     xmp360)
-        source /usr/libexec/apm/apm-eggs
+        source "$_apm_lib_dir/apm-eggs"
         xmp360_egg
         ;;
     bronya)
-        source /usr/libexec/apm/apm-eggs
+        source "$_apm_lib_dir/apm-eggs"
         bronya_egg
         ;;
     *)
         show_help
+        exit 1
         ;;
 esac

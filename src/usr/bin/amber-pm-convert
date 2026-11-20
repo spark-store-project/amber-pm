@@ -196,9 +196,6 @@ _append_unique() {
 _pkg_dir() {
     local pkgname="$1"
     local pkg_dir="/var/lib/apm/${pkgname}"
-    if [ ! -d "$pkg_dir" ]; then
-        pkg_dir="/var/lib/apm/apm/files/ace-env/var/lib/apm/${pkgname}"
-    fi
     [ -d "$pkg_dir" ] && echo "$pkg_dir"
 }
 
@@ -211,8 +208,8 @@ _is_addon_pkg() {
 # 递归获取info文件中的依赖 (会把新依赖追加到 BASENAMES 数组中)
 get_recursive_basenames() {
     local basename="$1"
-    # 注意：根据之前脚本结构，info 存放在 /var/lib/apm/apm/files/ace-env/var/lib/apm/<basename>/info
-    local base_dir="/var/lib/apm/apm/files/ace-env/var/lib/apm/$basename"
+    # info 文件位于 /var/lib/apm/<basename>/info
+    local base_dir="/var/lib/apm/$basename"
     local info_file="$base_dir/info"
 
     if [ -f "$info_file" ]; then
@@ -297,8 +294,8 @@ log.info "构建 overlay lowerdir 路径..."
 LOWERDIRS=()
 
 for BASENAME in "${BASENAMES[@]}"; do
-    ACE_ENV_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/ace-env"
-    CORE_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${BASENAME}/files/core"
+    ACE_ENV_PATH="/var/lib/apm/${BASENAME}/files/ace-env"
+    CORE_PATH="/var/lib/apm/${BASENAME}/files/core"
 
     if [ -d "$ACE_ENV_PATH" ]; then
         log.info "使用 ace-env 路径: $ACE_ENV_PATH"
@@ -318,7 +315,7 @@ done
 for addon in "${ADDONS[@]}"; do
     ADDON_PATH="/var/lib/apm/${addon}"
     if [ ! -d "$ADDON_PATH" ]; then
-        ADDON_PATH="/var/lib/apm/apm/files/ace-env/var/lib/apm/${addon}"
+        ADDON_PATH="/var/lib/apm/${addon}"
     fi
 
     if [ -d "${ADDON_PATH}/files/ace-env" ]; then
@@ -674,7 +671,7 @@ process_desktop_file() {
     
     # 处理 Icon 路径（若以 / 开头）
     if grep -q '^Icon=/' "$desktop_file"; then
-        sed -i "s|^Icon=/|Icon=/var/lib/apm/apm/files/ace-env/var/lib/apm/$pkgname/files/core/|" "$desktop_file"
+        sed -i "s|^Icon=/|Icon=/var/lib/apm/$pkgname/files/core/|" "$desktop_file"
     fi
     
     # 添加 X-APM-APPID（如果不存在）

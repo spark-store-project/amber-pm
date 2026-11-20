@@ -1,10 +1,8 @@
 #!/bin/bash
 
-# 容器根目录：apm-main 会通过环境变量传入；单独调用时使用默认值。
-# 注意用 ${VAR-default} 而不是 ${VAR:-default}：空值表示应用直接装在宿主
-# /var/lib/apm 下（见 apm-main 中 run/launch 的兼容逻辑）。
-APM_PREFIX="${PATH_PREFIX-/var/lib/apm/apm/files/ace-env/}"
-APM_PREFIX="${APM_PREFIX%/}"
+# APM 包数据目录（1.4.0 起包直接装在宿主 /var/lib/apm 下）
+APM_STATE_DIR="${APM_STATE_DIR:-/var/lib/apm}"
+APM_STATE_DIR="${APM_STATE_DIR%/}"
 
 # ===== 日志函数（简化版）=====
 log.info()  { printf 'INFO: %s\n' "$*" >&2; }
@@ -16,7 +14,7 @@ log.debug() { :; }  # APM 场景下可禁用 debug 日志
 function scan_apm_desktop_log() {
     unset desktop_file_path
     local pkg_name="$1"
-    local desktop_dir="${APM_PREFIX}/var/lib/apm/${pkg_name}/entries/applications"
+    local desktop_dir="${APM_STATE_DIR}/${pkg_name}/entries/applications"
 
     [ -d "$desktop_dir" ] || return 1
 
@@ -35,7 +33,7 @@ function scan_apm_desktop_log() {
 # ===== APM 专用桌面文件扫描（多文件列表）=====
 function scan_apm_desktop_list() {
     local pkg_name="$1"
-    local desktop_dir="${APM_PREFIX}/var/lib/apm/${pkg_name}/entries/applications"
+    local desktop_dir="${APM_STATE_DIR}/${pkg_name}/entries/applications"
     local result=""
 
     [ -d "$desktop_dir" ] || { echo ""; return; }

@@ -13,7 +13,7 @@ for dir in "$APM_BASE"/*/; do
     fi
     
     # 检查是否存在 /var/lib/apm/目录名/files/ace-env
-    if [[ -f "$dir/files/ace-env" ]]; then
+    if [[ -d "$dir/files/ace-env" ]]; then
         echo "执行 apm-configure-nvidia: $dir"
         amber-pm-configure-nvidia "$dir/files/ace-env"
     fi

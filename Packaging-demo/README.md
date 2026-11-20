@@ -410,7 +410,7 @@ $(whoami)
 
    ```bash
    sudo mount -t overlay overlay \
-     -o lowerdir='/var/lib/apm/apm/files/ace-env/var/lib/apm/amber-pm-xxx/files/ace-env',upperdir=core/,workdir=work/ \
+     -o lowerdir='/var/lib/apm/amber-pm-xxx/files/ace-env',upperdir=core/,workdir=work/ \
      ./ace-env
    ```
 

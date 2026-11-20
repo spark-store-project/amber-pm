@@ -1,28 +1,18 @@
 #!/bin/bash
+# APM 卸载脚本
+#
+# 注意：1.4.0 起 APM 包（应用/base 环境）直接安装在 /var/lib/apm/<包名>/，
+# 它们由 apm 或宿主 apt 管理，不应该因为卸载 apm 本身而被删除。
+# 这里只清理 APM 自己的运行数据（/var/lib/apm/apm、db、lists、cache），
+# 需要彻底清理全部软件包时请手动删除 /var/lib/apm。
 PACKAGE_NAME="$DPKG_MAINTSCRIPT_PACKAGE"
-systemctl stop apm-daily-update
-systemctl disable apm-daily-update
+systemctl stop apm-daily-update 2>/dev/null || true
+systemctl disable apm-daily-update 2>/dev/null || true
 
-
-
-if [ "$1" = "remove" ] || [ "$1" = "purge" ];then
-
-echo "清理卸载残留"
-
-rm -rf /var/lib/apm/
-for username in $(ls /home)
-    do
-        echo /home/$username
-        if [ -d "/home/$username/.apm/" ]
-        then
-            rm -fr "/home/$username/.apm/"
-        fi
-done
-
-
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    echo "清理 APM 运行数据（保留已安装的软件包）"
+    rm -rf /var/lib/apm/apm /var/lib/apm/db /var/lib/apm/lists /var/lib/apm/cache
+    echo "已安装的软件包仍保留在 /var/lib/apm/；如需全部删除请手动执行: rm -rf /var/lib/apm"
 else
-echo "非卸载，跳过清理"
+    echo "非卸载，跳过清理"
 fi
-
-
-

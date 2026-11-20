@@ -27,7 +27,7 @@ nix flake check
 
 ## 初始化本地状态目录
 
-APM 需要可写的 `/var/lib/apm` 目录保存自身运行环境和已安装应用。Nix 包中的文件位于只读 Nix store，因此首次测试前需要初始化状态目录：
+APM 需要可写的 `/var/lib/apm` 目录保存自身运行文件、仓库索引和已安装应用。Nix 包中的文件位于只读 Nix store，因此首次测试前需要初始化状态目录：
 
 ```bash
 sudo ./result/bin/amber-pm-init-state
@@ -41,19 +41,16 @@ sudo ./result/bin/amber-pm-init-state --force
 
 `--force` 会原地覆盖 `/var/lib/apm/apm` 中的 APM 自身文件，不会移动、备份或删除整个 `/var/lib/apm/apm` 目录，以免影响已经安装在该目录下的 APM 应用。
 
-随后初始化内置 AmberCE 环境：
+1.4.0 起 APM 不再携带管理环境 rootfs，不需要 `ace-init`。接下来更新仓库索引并查看调试信息即可：
 
 ```bash
-sudo /var/lib/apm/apm/files/bin/ace-init
-```
-
-完成后可继续测试：
-
-```bash
+sudo ./result/bin/apm update
+sudo ./result/bin/apm install amber-pm-trixie   # 按需安装 base 环境
 ./result/bin/apm debug
-./result/bin/apm update
 ./result/bin/apm search amber-pm-
 ```
+
+> 安装 base 环境时会调用该包的 `files/bin/ace-init` 解压 rootfs，需要 root 权限与 bubblewrap。
 
 ## 作为 NixOS Module 使用
 
@@ -95,11 +92,11 @@ NUR 仓库中的示例：
 
 {
   amber-pm = pkgs.callPackage ./pkgs/amber-pm {
-    version = "1.3.4.0";
+    version = "1.4.0";
     src = pkgs.fetchFromGitHub {
       owner = "amber-ce";
       repo = "amber-pm";
-      rev = "v1.3.4.0";
+      rev = "v1.4.0";
       hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
     };
   };

@@ -3,12 +3,16 @@ Source: amber-ce
 Version: @VERSION@
 Architecture: amd64
 Maintainer: shenmo <shenmo@spark-app.store>
-Installed-Size: 49388
-Depends: zenity | garma,bubblewrap, flatpak,  policykit-1 | pkexec | polkit-1 | polkit, systemd, procps,coreutils,fuse-overlayfs,xz-utils | xz,libnotify-bin,curl,xdg-user-dirs,bash
+Installed-Size: 13000
+Depends: zenity | garma, bubblewrap, flatpak, policykit-1 | pkexec | polkit-1 | polkit, systemd, procps, coreutils, fuse-overlayfs, xz-utils | xz, zstd, gpgv, tar, libnotify-bin, curl, xdg-user-dirs, bash
 Recommends: dpkg, fakeroot, busybox
 Section: misc
 Conflicts: ace-host-integration
 Priority: optional
 Multi-Arch: foreign
 Homepage: https://gitee.com/amber-ce/amber-pm/
-Description: bwrap wrapper for install and running debs inside a Amber-PM container
+Description: Amber Package Manager with native (apt-free) package management
+ APM installs and runs Debian-based applications inside bwrap/overlayfs
+ environments. Since 1.4.0 packages are managed natively from the apt-style
+ APM repository (signed index + .deb payloads) without requiring dpkg/apt or a
+ bundled management rootfs.

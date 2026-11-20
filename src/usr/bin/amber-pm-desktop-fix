@@ -1,131 +1,102 @@
 #!/bin/bash
+# =============================================================================
+# amber-pm-desktop-fix —— APM 桌面集成
+#
+# 1.4.0 起 APM 包直接安装在宿主 /var/lib/apm/<包名>/，不再有管理环境。
+# 本脚本把每个包 entries/ 下的桌面文件与图标链接到桌面环境能找到的目录：
+#   * 麒麟系统: /usr/share/{applications,icons}
+#   * KDE:      /usr/local/share/applications/apm
+#   * 其他:     /usr/local/share/applications
+# 同时清理旧版本（管理环境路径）留下的失效链接。
+# =============================================================================
 
-# 检测是否安装了 KDE Plasma 桌面环境
-# 通过检查系统中是否存在相关的 desktop 文件或关键程序
+APM_STATE_DIR="${APM_STATE_DIR:-/var/lib/apm}"
+APM_STATE_DIR="${APM_STATE_DIR%/}"
+
 is_kde_plasma() {
-    # 检查 KDE Plasma
-    if [ -f /usr/share/xsessions/plasma.desktop ] || \
-       [ -f /usr/share/xsessions/plasma-xorg.desktop ] || \
-       [ -f /usr/share/xsessions/plasma-wayland.desktop ] || \
-       [ -f /usr/local/share/xsessions/plasma.desktop ] || \
-       [ -f /usr/local/share/xsessions/plasma-xorg.desktop ] || \
-       [ -f /usr/local/share/xsessions/plasma-wayland.desktop ] || \
-       command -v startplasma-x11 >/dev/null 2>&1 || \
-       command -v startplasma-wayland >/dev/null 2>&1 || \
-       command -v plasmashell >/dev/null 2>&1; then
+    if [ -f /usr/share/xsessions/plasma.desktop ] ||
+        [ -f /usr/share/xsessions/plasma-xorg.desktop ] ||
+        [ -f /usr/share/xsessions/plasma-wayland.desktop ] ||
+        [ -f /usr/local/share/xsessions/plasma.desktop ] ||
+        [ -f /usr/local/share/xsessions/plasma-xorg.desktop ] ||
+        [ -f /usr/local/share/xsessions/plasma-wayland.desktop ] ||
+        command -v startplasma-x11 >/dev/null 2>&1 ||
+        command -v startplasma-wayland >/dev/null 2>&1 ||
+        command -v plasmashell >/dev/null 2>&1; then
         return 0
     fi
     return 1
 }
 
-# 确定目标目录
-if grep -q "Kylin" /etc/os-release; then
-    TARGET_BASE="/usr/share"
-    APP_TARGET_DIR="$TARGET_BASE/applications"
-    echo "检测到麒麟系统，使用目标目录: $TARGET_BASE"
+if grep -q "Kylin" /etc/os-release 2>/dev/null; then
+    APP_TARGET_DIR="/usr/share/applications"
+    ICON_TARGET_DIR="/usr/share/icons"
+elif is_kde_plasma; then
+    APP_TARGET_DIR="/usr/local/share/applications/apm"
+    ICON_TARGET_DIR="/usr/local/share/icons"
 else
-    TARGET_BASE="/usr/local/share"
-    # 检测是否为 KDE Plasma 桌面环境
-    if is_kde_plasma; then
-        APP_TARGET_DIR="$TARGET_BASE/applications/apm"
-        echo "检测到 KDE Plasma 桌面环境，使用目标目录: $APP_TARGET_DIR"
-    else
-        APP_TARGET_DIR="$TARGET_BASE/applications"
-        echo "使用标准目标目录: $APP_TARGET_DIR"
-    fi
+    APP_TARGET_DIR="/usr/local/share/applications"
+    ICON_TARGET_DIR="/usr/local/share/icons"
 fi
 
-function ensure_dir() {
+ensure_dir() {
     local dir="$1"
-    
-    # 检查目录是否为空
-    if [ -z "$dir" ]; then
-        echo "错误: 目录路径不能为空"
-        return 1
-    fi
-    
-    # 检查目录是否存在
-    if [ ! -d "$dir" ]; then
-        echo "目录 '$dir' 不存在，正在创建..."
-        if mkdir -p "$dir"; then
-            echo "成功创建目录 '$dir'"
-            return 0
-        else
-            echo "错误: 无法创建目录 '$dir'"
-            return 1
-        fi
-    else
-        return 0
-    fi
+    [ -n "$dir" ] || return 1
+    [ -d "$dir" ] || mkdir -p "$dir"
 }
 
-# 函数：检查目录并创建符号链接
-process_directory() {
-    local source_dir="$1"
-    local target_dir="$2"
-    local name="$3"
-    
-    if [ -d "$source_dir" ] && [ -n "$(ls -A "$source_dir")" ]; then
-        ln -sv $source_dir/* "$target_dir" 2>/dev/null
-        find "$target_dir" -xtype l -exec echo '{} is invalid now and going to be cleaned' \; -exec unlink {} \; 2>/dev/null &
-    else
-        echo "$name directory is empty or does not exist, skipping..."
-    fi
+# 递归地把图标目录里的文件链接到目标目录
+_link_icons() { # 源目录 目标目录
+    local src="$1" dst="$2" f rel target
+    [ -d "$src" ] || return 0
+    while IFS= read -r -d '' f; do
+        rel="${f#"$src"/}"
+        target="$dst/$rel"
+        ensure_dir "$(dirname -- "$target")" || continue
+        ln -sfn "$(realpath -- "$f")" "$target" 2>/dev/null || true
+    done < <(find "$src" -type f -print0 2>/dev/null)
 }
 
-# 使用动态确定的目标目录
-ensure_dir "$APP_TARGET_DIR/"
-ensure_dir "$TARGET_BASE/icons/"
+_link_applications() { # 源目录 目标目录
+    local src="$1" dst="$2" f
+    [ -d "$src" ] || return 0
+    while IFS= read -r -d '' f; do
+        ln -sfn "$(realpath -- "$f")" "$dst/$(basename -- "$f")" 2>/dev/null || true
+    done < <(find "$src" -maxdepth 1 -type f -name '*.desktop' -print0 2>/dev/null)
+}
 
-# 处理 applications 目录
-process_directory "/var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir/applications/" \
-                  "$APP_TARGET_DIR/" "Applications"
-
-# 处理 icons 目录
-process_directory "/var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir/icons/" \
-                  "$TARGET_BASE/icons/" "Icons"
-
-# 等待所有后台任务完成
-wait
-
-# 迁移老链接（仅非麒麟系统需要）
-if ! grep -q "Kylin" /etc/os-release; then
-    # 定义可能的链接位置
-    APM_SUBDIR="/usr/local/share/applications/apm"
-    APP_ROOT_DIR="/usr/local/share/applications"
-    
-    # 根据当前目标目录，确定源目录
-    if [ "$APP_TARGET_DIR" = "$APM_SUBDIR" ]; then
-        # 当前目标是 apm 子目录，需要检查根目录是否有链接需要迁移
-        SOURCE_DIR="$APP_ROOT_DIR"
-    else
-        # 当前目标是根目录，需要检查 apm 子目录是否有链接需要迁移
-        SOURCE_DIR="$APM_SUBDIR"
-    fi
-    
-    # 检查源目录是否存在且与目标目录不同
-    if [ -d "$SOURCE_DIR" ] && [ "$SOURCE_DIR" != "$APP_TARGET_DIR" ]; then
-        echo "检查并迁移老链接..."
-        # 查找源目录中指向APM数据目录的符号链接
-        find "$SOURCE_DIR" -maxdepth 1 -type l 2>/dev/null | while read -r link; do
-            target=$(readlink "$link")
-            # 如果链接指向APM的数据目录
-            if [[ "$target" == /var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir/applications/* ]]; then
-                filename=$(basename "$link")
-                # 如果新位置没有同名文件，则移动
-                if [ ! -e "$APP_TARGET_DIR/$filename" ]; then
-                    echo "迁移老链接: $filename"
-                    mv -v "$link" "$APP_TARGET_DIR/"
-                else
-                    echo "新位置已存在 $filename，删除老链接"
-                    rm -v "$link"
+# 清理指向旧管理环境的失效链接（只动 /var/lib/apm 相关的）
+_cleanup_stale_links() {
+    local f target
+    for f in "$APP_TARGET_DIR"/*.desktop; do
+        [ -L "$f" ] || continue
+        target="$(readlink -- "$f" 2>/dev/null)" || continue
+        case "$target" in
+            *ace-env* | *"/var/lib/apm/"*)
+                if [ ! -e "$target" ]; then
+                    rm -f -- "$f"
                 fi
-            fi
-        done
-        
-        # 如果源目录是 apm 子目录且已空，尝试删除
-        if [ "$SOURCE_DIR" = "$APM_SUBDIR" ] && [ -d "$APM_SUBDIR" ]; then
-            rmdir "$APM_SUBDIR" 2>/dev/null || true
-        fi
-    fi
+                ;;
+        esac
+    done
+}
+
+ensure_dir "$APP_TARGET_DIR"
+ensure_dir "$ICON_TARGET_DIR"
+
+for pkgdir in "$APM_STATE_DIR"/*/; do
+    [ -d "$pkgdir" ] || continue
+    pkg="$(basename -- "$pkgdir")"
+    [ "$pkg" = "apm" ] && continue
+    [ -d "$pkgdir/entries" ] || continue
+    _link_applications "$pkgdir/entries/applications" "$APP_TARGET_DIR"
+    _link_icons "$pkgdir/entries/icons" "$ICON_TARGET_DIR"
+done
+
+_cleanup_stale_links
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$APP_TARGET_DIR" >/dev/null 2>&1 &
 fi
+
+exit 0

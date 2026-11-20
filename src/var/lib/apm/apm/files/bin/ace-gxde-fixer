@@ -1,7 +1,8 @@
 #!/bin/bash
-if [ "$UID" != "0" ];then
-pkexec $0
-exit
+# GXDE 桌面集成修复：重做 APM 桌面文件/图标链接
+if [ "$UID" != "0" ]; then
+    pkexec "$0"
+    exit
 fi
-
-apm-debug amber-pm-dstore-patch
+amber-pm-dstore-patch
+amber-pm-desktop-fix

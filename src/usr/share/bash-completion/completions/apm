@@ -1,321 +1,64 @@
-# Debian apt(8) completion                             -*- shell-script -*-
+# apm(8) bash 补全（1.4.0 起为原生包管理）
+# 安装位置：/usr/share/bash-completion/completions/apm
+
+_apm_installed_pkgs() {
+    local d base
+    for d in /var/lib/apm/*/; do
+        [ -d "$d" ] || continue
+        base="$(basename -- "$d")"
+        case "$base" in
+            apm | db | lists | cache) continue ;;
+        esac
+        [ -f "$d/info" ] || [ -d "$d/files" ] || continue
+        printf '%s\n' "$base"
+    done
+}
+
+_apm_all_pkgs() {
+    apm list --all 2>/dev/null | awk '{print $1}' | cut -d'/' -f1
+}
 
 _apm()
 {
-    local sourcesdir="/etc/apt/sources.list.d"
     local cur prev words cword
     _init_completion || return
 
-    local GENERIC_APT_GET_OPTIONS='
-        -d --download-only
-        -y --assume-yes
-        --assume-no
-        -u --show-upgraded
-        -m --ignore-missing
-        -t --target-release
-        --download
-        --fix-missing
-        --ignore-hold
-        --upgrade
-        --only-upgrade
-        --allow-change-held-packages
-        --allow-remove-essential
-        --allow-downgrades
-        --print-uris
-        --trivial-only
-        --remove
-        --arch-only
-        --allow-unauthenticated
-        --allow-insecure-repositories
-        --install-recommends
-        --install-suggests
-        --no-install-recommends
-        --no-install-suggests
-        --fix-policy
-    '
+    local commands="install reinstall remove purge autoremove autopurge update upgrade full-upgrade hold unhold list search show policy depends rdepends download clean migrate debug launch run sandbox-run bwrap-run ssinstall ssaudit amber xmp360 bronya help"
 
-    # see if the user selected a command already
-    local COMMANDS=(
-        "ssaudit"
-        "ssinstall"
-        "launch"
-        "list"
-        "search"
-        "show" "showsrc"
-        "install" "remove" "purge" "autoremove" "autopurge"
-        "update"
-        "upgrade" "full-upgrade" "dist-upgrade"
-        "run"
-        "sandbox-run"
-        "bwrap-run"
-        "help"
-        "source" "build-dep"
-        "clean" "autoclean"
-        "download" "changelog"
-        "amber"
-        "xmp360"
-        "bronya"
-        "debug"
-        "depends" "rdepends"
-        "policy")
-
-    local command i
-    for (( i=0; i < ${#words[@]}-1; i++ )); do
-        if [[ ${COMMANDS[@]} =~ ${words[i]} ]]; then
-            command=${words[i]}
-            break
-        fi
-    done
-
-
-
-    # supported options per command
-    if [[ "$cur" == -* ]]; then
-        case $command in
-            install|remove|purge|upgrade|dist-upgrade|full-upgrade|autoremove|autopurge)
-                COMPREPLY=( $( compgen -W '--show-progress
-                  --fix-broken --purge --verbose-versions --auto-remove
-                  -s --simulate --dry-run
-                  --download
-                  --fix-missing
-                  --fix-policy
-                  --ignore-hold
-                  --force-yes
-                  --trivial-only
-                  --reinstall --solver
-                  -t --target-release'"$GENERIC_APT_GET_OPTIONS" -- "$cur" ) )
-                return 0
-                ;;
-            update)
-                COMPREPLY=( $( compgen -W '--list-cleanup
-                  --print-uris
-                  --allow-insecure-repositories
-                  ' -- "$cur" ) )
-                return 0
-                ;;
-            list)
-                COMPREPLY=( $( compgen -W '--installed --upgradable 
-                  --manual-installed
-                  -v --verbose
-                  -a --all-versions
-                  -t --target-release
-                  ' -- "$cur" ) )
-                return 0
-                ;;
-            show)
-                COMPREPLY=( $( compgen -W '-a --all-versions
-                  ' -- "$cur" ) )
-                return 0
-                ;;
-            depends|rdepends)
-                COMPREPLY=( $( compgen -W '-i
-                    --important
-                    --installed
-                    --pre-depends
-                    --depends
-                    --recommends
-                    --suggests
-                    --replaces
-                    --breaks
-                    --conflicts
-                    --enhances
-                    --recurse
-                    --implicit' -- "$cur" ) )
-                return 0
-                ;;
-            search)
-                COMPREPLY=( $( compgen -W '
-                    -n --names-only
-                    -f --full' -- "$cur" ) )
-                return 0
-                ;;
-            showsrc)
-                COMPREPLY=( $( compgen -W '
-                    --only-source' -- "$cur" ) )
-                return 0
-                ;;
-            source)
-                COMPREPLY=( $( compgen -W '
-                    -s --simulate --dry-run
-                    -b --compile --build
-                    -P --build-profiles
-                    --diff-only --debian-only
-                    --tar-only
-                    --dsc-only
-                    -t --target-release
-                    '"$GENERIC_APT_GET_OPTIONS" -- "$cur" ) )
-                return 0
-                ;;
-            build-dep)
-                COMPREPLY=( $( compgen -W '
-                    -a --host-architecture
-                    -s --simulate --dry-run
-                    -P --build-profiles
-                    -t --target-release
-                    --purge --solver
-                    '"$GENERIC_APT_GET_OPTIONS" -- "$cur" ) )
-                return 0
-                ;;
-            moo)
-                COMPREPLY=( $( compgen -W '
-                    --color
-                    ' -- "$cur" ) )
-                return 0
-                ;;
-            clean|autoclean)
-                COMPREPLY=( $( compgen -W '
-                    -s --simulate --dry-run
-                    ' -- "$cur" ) )
-                return 0
-                ;;
-        esac
-    fi
-# 定义目录路径
-primary_dir="/var/lib/apm/apm/files/ace-env/var/lib/apm/"
-fallback_dir="/var/lib/apm/"
-
-# 查找不包含特定子目录的目录
-find_directories_without_ace_env() {
-    local base_dir="$1"
-    local result=()
-    
-    # 检查基础目录是否存在
-    if [[ ! -d "$base_dir" ]]; then
-        return 1
-    fi
-    
-    # 查找所有直接子目录，排除包含ace-env子目录的目录
-    while IFS= read -r -d '' dir; do
-        if [[ -d "$dir" ]] && [[ ! -d "$dir/files/ace-env" ]]; then
-            result+=("$(basename "$dir")")
-        fi
-    done < <(find "$base_dir" -maxdepth 1 -type d ! -path "$base_dir" -print0 2>/dev/null)
-    
-    # 输出结果
-    if [[ ${#result[@]} -gt 0 ]]; then
-        printf '%s\n' "${result[@]}"
+    if [ "$cword" -eq 1 ]; then
+        COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
         return 0
     fi
-    return 1
-}
 
-function apm_run_compgen(){
-    result=$(find_directories_without_ace_env "$primary_dir")
-
-    if [[ -n "$result" ]]; then
-        echo "$result"
-    else
-        result=$(find_directories_without_ace_env "$fallback_dir")
-        if [[ -n "$result" ]]; then
-            echo "$result"
-        else
-            echo ""
-        fi
-    fi
-}
-
-# 获取当前命令的参数位置
-get_arg_position() {
-    local cmd="$1"
-    local pos=0
-    local found_cmd=0
-    
-    for (( i=1; i < ${#words[@]}; i++ )); do
-        if [[ $found_cmd -eq 0 ]]; then
-            if [[ "${words[i]}" == "$cmd" ]]; then
-                found_cmd=1
+    local cmd="${words[1]}"
+    case "$cmd" in
+        install|reinstall)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=( $(compgen -W "--force-outside-paths --reinstall -y --yes" -- "$cur") )
+                return 0
             fi
-        else
-            # 跳过选项参数（以-开头）
-            if [[ "${words[i]}" != -* ]]; then
-                ((pos++))
+            COMPREPLY=( $(compgen -W "$(_apm_all_pkgs)" -- "$cur") )
+            if [[ "$cur" == ./* || "$cur" == /* ]]; then
+                _filedir deb
             fi
-        fi
-    done
-    echo $pos
-}
-
-    # specific command arguments
-    if [[ -n $command ]]; then
-        # 获取参数位置
-        local arg_pos=$(get_arg_position "$command")
-        
-        case $command in
-            remove|purge|autoremove)
-                # 第一个参数匹配包名
-                if [[ $arg_pos -eq 1 ]]; then
-                    COMPREPLY=( $( compgen -W "$(ls /var/lib/apm/apm/files/ace-env/var/lib/apm/ )" "$cur" ) )
-                fi
-                return 0
-                ;;
-            show|list|download|changelog|depends|rdepends)
-                # 第一个参数匹配包名
-                if [[ $arg_pos -eq 1 ]]; then
-                    COMPREPLY=( $( amber-pm-debug apt-cache --no-generate pkgnames "$cur" -o Dir::Cache="/var/lib/aptss/"  \
-                        2> /dev/null ) )
-                fi
-                return 0
-                ;;
-            install)
-                # 第一个参数匹配包名
-                if [[ $arg_pos -eq 1 ]]; then
-                    COMPREPLY=( $( amber-pm-debug apt-cache --no-generate pkgnames "$cur" -o Dir::Cache="/var/lib/aptss/"  \
-                        2> /dev/null ) )
-                    if [[ "$cur" == ./* || "$cur" == /* ]]; then
-                        _filedir "deb"
-                    fi
-                fi
-                return 0
-                ;;
-            source|build-dep|showsrc|policy)
-                # 第一个参数匹配包名
-                if [[ $arg_pos -eq 1 ]]; then
-                    COMPREPLY=( $( amber-pm-debug apt-cache --no-generate pkgnames "$cur" -o Dir::Cache="/var/lib/aptss/"  \
-                        2> /dev/null ) $( apt-cache dumpavail -o Dir::Cache="/var/lib/aptss/"  | \
-                        command grep "^Source: $cur" | sort -u | cut -f2 -d" " ) )
-                fi
-                return 0
-                ;;
-            run|sandbox-run|bwrap-run)
-                # 第一个参数匹配包名
-                if [[ $arg_pos -eq 1 ]]; then
-                    COMPREPLY=( $( compgen -W "$(apm_run_compgen)" "$cur" ) )
-                # 第二个及以后参数匹配文件
-                elif [[ $arg_pos -ge 2 ]]; then
-                    _filedir
-                fi
-                return 0
-                ;;
-            launch)
-                # 第一个参数匹配包名
-                if [[ $arg_pos -eq 1 ]]; then
-                    COMPREPLY=( $( compgen -W "$(apm_run_compgen)" "$cur" ) )
-                # 第二个及以后参数匹配文件
-                elif [[ $arg_pos -ge 2 ]]; then
-                    _filedir
-                fi
-                return 0
-                ;;
-            ssaudit)
-                # ssaudit 命令总是匹配文件
-                _filedir
-                return 0
-                ;;
-            ssinstall)
-                # ssinstall 命令总是匹配文件
-                _filedir
-                return 0
-                ;;
-        esac
-    fi
-
-    # no command yet, show what commands we have
-    if [ "$command" = "" ]; then
-        COMPREPLY=( $( compgen -W '${COMMANDS[@]}' -- "$cur" ) )
-    fi
-
+            ;;
+        remove|purge|autoremove|autopurge|hold|unhold|launch|run|sandbox-run|bwrap-run)
+            COMPREPLY=( $(compgen -W "$(_apm_installed_pkgs)" -- "$cur") )
+            ;;
+        show|policy|depends|rdepends|download|ssinstall|ssaudit)
+            COMPREPLY=( $(compgen -W "$(_apm_all_pkgs)" -- "$cur") )
+            if [[ "$cur" == ./* || "$cur" == /* ]]; then
+                _filedir deb
+            fi
+            ;;
+        list)
+            COMPREPLY=( $(compgen -W "--installed --all --upgradable" -- "$cur") )
+            ;;
+        migrate|update|upgrade|clean|debug)
+            COMPREPLY=( $(compgen -W "--dry-run" -- "$cur") )
+            ;;
+    esac
     return 0
-} &&
-complete -F _apm apm
+}
 
-# ex: ts=4 sw=4 et filetype=sh
+complete -F _apm apm
