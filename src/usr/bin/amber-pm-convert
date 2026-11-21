@@ -613,6 +613,20 @@ interactive_copy_entries() {
 
 
 
+# 判断绝对 Icon 路径对应的文件是否真的在转换包内。
+# 只有包内文件才需要改写到 files/core；系统图标应保留原路径，让主机主题解析。
+_icon_in_package() { # icon path
+    local icon="$1"
+    [ -n "$icon" ] || return 1
+    if [ -n "${EXTRACT_DIR:-}" ] && [ -e "${EXTRACT_DIR}${icon}" ]; then
+        return 0
+    fi
+    if [ -n "${CRAFT_DIR:-}" ] && [ -e "${CRAFT_DIR}/core${icon}" ]; then
+        return 0
+    fi
+    return 1
+}
+
 # 函数：处理桌面文件内容
 # 函数：处理桌面文件内容（安全版本，避免重复处理）
 process_desktop_file() {
@@ -669,9 +683,17 @@ process_desktop_file() {
         log.info "已删除 TryExec 行"
     fi
     
-    # 处理 Icon 路径（若以 / 开头）
+    # 处理 Icon 路径：只把包内真实存在的绝对图标改写到 files/core。
+    # 系统图标如果在包内不存在，保留原始 /usr/share/... 路径，避免主机找不到。
     if grep -q '^Icon=/' "$desktop_file"; then
-        sed -i "s|^Icon=/|Icon=/var/lib/apm/$pkgname/files/core/|" "$desktop_file"
+        local icon_path
+        icon_path="$(sed -n 's/^Icon=//p' "$desktop_file" | head -n 1)"
+        if _icon_in_package "$icon_path"; then
+            # 注意不要多写一个 /：原路径自带开头的 /
+            sed -i "s|^Icon=/|Icon=/var/lib/apm/$pkgname/files/core|" "$desktop_file"
+        else
+            log.debug "Icon 不在包内，保留原始路径: $icon_path"
+        fi
     fi
     
     # 添加 X-APM-APPID（如果不存在）
