@@ -432,14 +432,34 @@ apm_install_one_target() { # 包名 auto
     fi
 }
 
+# 安装前确认（--yes 跳过；非交互无 -y 时读 EOF 即取消）
+_apm_install_confirm() { # total assume_yes
+    local assume_yes="$2"
+    [ "$assume_yes" = "1" ] && return 0
+    printf '%s' "$(apm_t "是否继续？[Y/n] " "Do you want to continue? [Y/n] ")" >&2
+    local answer=""
+    if ! IFS= read -r answer; then
+        printf '\n' >&2
+        log.info "$(apm_t "已取消。" "Aborted.")"
+        return 1
+    fi
+    case "$answer" in
+        "" | y | Y | yes | YES | Yes) return 0 ;;
+        *)
+            log.info "$(apm_t "已取消。" "Aborted.")"
+            return 1
+            ;;
+    esac
+}
+
 apm_cmd_install() {
-    local auto=0 force_outside=0
+    local auto=0 force_outside=0 assume_yes=0
     local -a packages=()
     APM_REINSTALL="${APM_REINSTALL:-0}"
     APM_FORCE_OUTSIDE="${APM_FORCE_OUTSIDE:-0}"
     while [ $# -gt 0 ]; do
         case "$1" in
-            -y | --yes) ;;
+            -y | --yes) assume_yes=1 ;;
             --auto) auto=1 ;;
             --force-outside-paths | --force) force_outside=1 ;;
             --reinstall) APM_REINSTALL=1 ;;
@@ -469,6 +489,16 @@ apm_cmd_install() {
     done
 
     if [ ${#local_debs[@]} -gt 0 ]; then
+        if [ "$assume_yes" != "1" ]; then
+            printf '%s\n' "$(apm_t "将会安装以下本地软件包：" "The following local packages will be installed:")" >&2
+            local lp lpkg lver
+            for lp in "${local_debs[@]}"; do
+                lpkg="$(apm_deb_control_field "$lp" Package)"
+                lver="$(apm_deb_control_field "$lp" Version)"
+                printf '  %s (%s)\n' "$lpkg" "$lver" >&2
+            done
+            _apm_install_confirm "${#local_debs[@]}" "$assume_yes" || return 1
+        fi
         for p in "${local_debs[@]}"; do
             local pkg deps
             pkg="$(apm_deb_control_field "$p" Package)"
@@ -500,6 +530,52 @@ apm_cmd_install() {
             fi
         done
         apm_resolve_targets "${names[@]}" || return 1
+
+        # 先展示将要安装/升级/重装的包，再询问确认
+        local -a plan_new=() plan_up=() plan_re=()
+        local p_inst p_repo p_cmp
+        for p in "${_APM_RESOLVE_ORDER[@]}"; do
+            if apm_db_installed "$p"; then
+                p_inst="$(apm_db_version "$p")"
+                p_repo="$(apm_repo_version "$p")"
+                [ -n "$p_repo" ] || continue
+                if [ "${APM_REINSTALL:-0}" = "1" ]; then
+                    plan_re+=("$p")
+                    continue
+                fi
+                p_cmp="$(apm_vercmp "$p_inst" "$p_repo")"
+                if [ "$p_cmp" = "0" ] || [ "$p_cmp" = "1" ]; then
+                    continue
+                fi
+                plan_up+=("$p")
+            else
+                plan_new+=("$p")
+            fi
+        done
+        local plan_total=$(( ${#plan_new[@]} + ${#plan_up[@]} + ${#plan_re[@]} ))
+        if [ "$plan_total" -gt 0 ]; then
+            if [ ${#plan_new[@]} -gt 0 ]; then
+                printf '%s\n' "$(apm_t "将会安装以下新软件包：" "The following NEW packages will be installed:")" >&2
+                for p in "${plan_new[@]}"; do
+                    printf '  %s (%s)\n' "$p" "$(apm_repo_version "$p")" >&2
+                done
+            fi
+            if [ ${#plan_up[@]} -gt 0 ]; then
+                printf '%s\n' "$(apm_t "将会升级以下软件包：" "The following packages will be upgraded:")" >&2
+                for p in "${plan_up[@]}"; do
+                    printf '  %s (%s -> %s)\n' "$p" "$(apm_db_version "$p")" "$(apm_repo_version "$p")" >&2
+                done
+            fi
+            if [ ${#plan_re[@]} -gt 0 ]; then
+                printf '%s\n' "$(apm_t "将会重新安装以下软件包：" "The following packages will be reinstalled:")" >&2
+                for p in "${plan_re[@]}"; do
+                    printf '  %s (%s)\n' "$p" "$(apm_repo_version "$p")" >&2
+                done
+            fi
+            printf "$(apm_t "共 %s 个软件包。\n" "%s package(s) will be installed.\n")" "$plan_total" >&2
+            _apm_install_confirm "$plan_total" "$assume_yes" || return 1
+        fi
+
         APM_FORCE_OUTSIDE="$force_outside"
         for p in "${_APM_RESOLVE_ORDER[@]}"; do
             local p_auto=1
@@ -629,22 +705,39 @@ apm_remove_pkg() { # 包名 [force]
     fi
 
     log.info "$(printf "$(apm_tk remove.removing "卸载 %s" "Removing %s")" "$pkg")"
-    local other
-    other="$(mktemp "${TMPDIR:-/tmp}/apm-other.XXXXXX")" || return 1
-    apm_db_other_files "$pkg" > "$other"
 
-    local f
+    # 绝大多数包的文件都在自己的包目录里，直接 rm -rf 即可；
+    # 只有 --force-outside-paths / addons 等越界文件才需要逐个判断共享。
+    local pkgdir f fpath
+    pkgdir="$(apm_pkg_root "$pkg")"
+    local outside
+    outside="$(mktemp "${TMPDIR:-/tmp}/apm-outside.XXXXXX")" || return 1
     while IFS= read -r f; do
         [ -n "$f" ] || continue
-        # 与其它包共享的文件不删除
-        grep -Fxq -- "$f" "$other" 2>/dev/null && continue
-        rm -f -- "${APM_ROOT}${f}" 2>/dev/null || true
+        fpath="${APM_ROOT}${f}"
+        case "$fpath" in
+            "$pkgdir" | "$pkgdir"/*) continue ;;
+        esac
+        printf '%s\n' "$f" >> "$outside"
     done < <(apm_db_files "$pkg")
-    rm -f -- "$other"
+
+    if [ -s "$outside" ]; then
+        local other
+        other="$(mktemp "${TMPDIR:-/tmp}/apm-other.XXXXXX")" || {
+            rm -f -- "$outside"
+            return 1
+        }
+        apm_db_other_files "$pkg" > "$other"
+        # 一次 awk 建共享文件表，避免对每个文件 grep 整个 other 列表
+        awk 'NR==FNR { seen[$0]=1; next } !($0 in seen)' "$other" "$outside" |
+            while IFS= read -r f; do
+                rm -f -- "${APM_ROOT}${f}" 2>/dev/null || true
+            done
+        rm -f -- "$other"
+    fi
+    rm -f -- "$outside"
 
     # 包目录里的未跟踪内容（base rootfs、应用运行期写入）整体删除
-    local pkgdir
-    pkgdir="$(apm_pkg_root "$pkg")"
     rm -rf -- "$pkgdir"
 
     # addons 登记文件所在目录若为空则删除
@@ -723,7 +816,7 @@ apm_cmd_remove() {
         # 顺序已由闭包保证，这里 force=1 避免循环依赖等边界情况再次拒绝
         apm_remove_pkg "$p" 1 || any_failed=1
     done
-    apm_run_triggers
+    apm_run_triggers remove
     [ "$any_failed" = "0" ] || return 1
     return 0
 }
@@ -1086,7 +1179,8 @@ apm_cmd_clean() {
 # 触发动作：桌面集成 / 链接修复 / NVIDIA 配置
 # （对应旧 apm 仓库包的 dpkg trigger）
 # ---------------------------------------------------------------------------
-apm_run_triggers() {
+apm_run_triggers() { # [remove]
+    local mode="${1:-all}"
     [ "$APM_NO_TRIGGERS" = "1" ] && return 0
     if [ -n "$APM_ROOT" ]; then
         log.debug "测试模式：跳过安装后集成动作"
@@ -1106,7 +1200,7 @@ apm_run_triggers() {
     local d
     for d in "$APM_STATE_DIR"/*/files/ace-env; do
         [ -d "$d" ] || continue
-        if command -v amber-pm-configure-nvidia >/dev/null 2>&1; then
+        if [ "$mode" != "remove" ] && command -v amber-pm-configure-nvidia >/dev/null 2>&1; then
             amber-pm-configure-nvidia "$d" >/dev/null 2>&1 || true
         fi
     done

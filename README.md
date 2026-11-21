@@ -36,7 +36,7 @@ APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上
 
 ## 使用方法
 ```
-APM - Amber Package Manager 2.0.0~beta6
+APM - Amber Package Manager 2.0.0~beta7
 
 Usage:
   apm [COMMAND] [OPTIONS] [PACKAGES...]
@@ -92,8 +92,9 @@ Commands:
   本地文件不会被 `apm update` 覆盖；它优先于服务端下载的配置。
 - 支持 `--force-outside-paths`：软件包默认只允许写入自己的目录；如果要写入其它位置，
   需要显式确认（高风险）。
-- `apm remove` 会计算反向依赖闭包，按“依赖方先删”的顺序卸载，并显示计划、
-  询问 y/n（`-y` 跳过确认）。
+- `apm install` / `apm remove` 都会先显示将要安装/卸载的包（含依赖、版本），
+  再询问 y/n；`-y` 跳过确认，适合脚本和 GUI 调用。
+- `apm remove` 会计算反向依赖闭包，按“依赖方先删”的顺序卸载。
 - 卸载单个应用会清理 `/var/lib/apm/<包名>` 与所有用户的 `~/.apm/<包名>`；
   卸载 APM 本身会一并删除 `/var/lib/apm` 下的全部应用和 `~/.apm`。
 - 输出语言跟随 `LANGUAGE`（GNU 优先级列表）以及 `LC_ALL/LC_MESSAGES/LANG`，

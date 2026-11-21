@@ -310,6 +310,12 @@ rm -f "$ROOT/etc/apm/apt-fast.conf"
 # 2. install（依赖解析 + base 初始化 + 数据库）
 # ===========================================================================
 out="$(run_apm install fake-app)"
+assert_contains "安装计划包含目标" "$out" "fake-app"
+assert_contains "安装计划包含依赖" "$out" "fake-base"
+assert_contains "安装前询问确认" "$out" "是否继续"
+assert_no_file "$(state)/fake-app" "未确认时不安装应用"
+assert_no_file "$(state)/fake-base" "未确认时不安装依赖"
+out="$(run_apm install -y fake-app)"
 assert_contains "安装 fake-app" "$out" "安装 fake-app 1.0"
 assert_contains "先安装依赖 fake-base" "$out" "安装 fake-base 1.0"
 assert_file "$(state)/fake-app/files/core/opt/fake/version.txt" "应用文件已安装"
@@ -344,13 +350,13 @@ assert_contains "policy 输出版本" "$(run_apm policy fake-app)" "候选"
 # ===========================================================================
 out="$(run_apm install fake-app)"
 assert_contains "重复安装提示已是最新" "$out" "已是最新版本"
-out="$(run_apm reinstall fake-app)"
+out="$(run_apm reinstall -y fake-app)"
 assert_contains "reinstall 重新安装" "$out" "重新安装 1.0"
 
 # ===========================================================================
 # 4. addon 安装/卸载（登记文件在 base 目录里，靠文件清单清理）
 # ===========================================================================
-out="$(run_apm install fake-addon)"
+out="$(run_apm install -y fake-addon)"
 assert_contains "安装 addon" "$out" "安装 fake-addon 1.0"
 assert_file "$(state)/fake-base/info_layer_addons.d/50-fake-addon" "addon 登记写入 base 目录"
 run_apm remove -y fake-addon >/dev/null
@@ -362,11 +368,11 @@ assert_file "$(state)/fake-base/files/ace-env.tar.xz" "base 包本身未被破�
 # ===========================================================================
 # 5. 路径越界：默认拒绝，--force-outside-paths 强制安装
 # ===========================================================================
-out="$(run_apm install evil-path)"
+out="$(run_apm install -y evil-path)"
 assert_contains "越界包被拒绝" "$out" "试图写入包目录之外"
 assert_no_file "$ROOT/usr/bin/apm-evil" "越界文件未写入"
 assert_not_contains "拒绝时不写数据库" "$(run_apm list --installed)" "evil-path"
-out="$(run_apm install --force-outside-paths evil-path)"
+out="$(run_apm install -y --force-outside-paths evil-path)"
 assert_contains "强制安装成功" "$out" "安装 evil-path 1.0"
 assert_file "$ROOT/usr/bin/apm-evil" "强制安装写入越界路径"
 run_apm remove -y evil-path >/dev/null
@@ -422,7 +428,7 @@ assert_no_file "$(state)/fake-app" "应用包目录已删除"
 assert_no_file "$(state)/fake-base" "base 目录已删除"
 
 # 重新安装，验证 autoremove 仍能清理自动依赖
-run_apm install fake-app >/dev/null
+run_apm install -y fake-app >/dev/null
 mkdir -p "$HOMES/.apm/fake-app"
 run_apm remove -y fake-app >/dev/null
 assert_no_file "$(state)/fake-app" "应用包目录已删除"
@@ -434,7 +440,7 @@ assert_eq "已安装列表为空" "Listing..." "$(run_apm list --installed)"
 # ===========================================================================
 # 9. ssinstall / ssaudit（本地 deb 校验）
 # ===========================================================================
-run_apm install fake-app >/dev/null   # 重新装回
+run_apm install -y fake-app >/dev/null   # 重新装回
 mkdir -p "$WORK/verify"
 cp "$REPO/pool/fake-app_2.0_all.deb" "$WORK/verify/fake-app_2.0_all.deb"
 assert_contains "ssaudit 校验通过" "$(run_apm ssaudit "$WORK/verify/fake-app_2.0_all.deb")" "校验通过"
@@ -526,7 +532,7 @@ local_sha="$(sha256sum "$REPO/Packages.xz" | cut -d' ' -f1)"
 local_size="$(wc -c < "$REPO/Packages.xz" | tr -d ' ')"
 printf 'Date: %s\nSHA256:\n %s %s Packages.xz\n' "$(date -R)" "$local_sha" "$local_size" > "$REPO/InRelease"
 run_apm update >/dev/null
-out="$(run_apm install broken-dep)"
+out="$(run_apm install -y broken-dep)"
 assert_contains "无法满足依赖时给出明确错误" "$out" "无法满足依赖"
 
 printf '\n通过 %d 项，失败 %d 项\n' "$PASSED" "$FAILED"

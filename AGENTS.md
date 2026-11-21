@@ -70,6 +70,7 @@ apm clean
 /var/lib/apm/apm/files/                 宿主侧的运行脚本（ace-run 等）
 ```
 
+- `apm install` 先列出新装/升级/重装计划再询问 y/n（`-y` 跳过）；卸载同理。
 - 包默认只能写自己的目录；addons 包写 `<base>/info_layer_addons.d/` 的登记文件是允许的。
 - 越界路径默认拒绝安装，确认可信后用 `--force-outside-paths`。
 - 卸载按 `files.list` + 包目录清理，并删除所有用户的 `~/.apm/<包名>`。
