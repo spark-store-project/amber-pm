@@ -285,6 +285,23 @@ assert_contains "索引更新完成" "$out" "仓库索引已更新"
 assert_file "$(state)/apm-conf/lists/Packages" "索引文件已保存"
 assert_file "$SPARK/apt-fast.conf" "服务配置已缓存"
 
+# 1.1 本地覆盖 /etc/apm/apt-fast.conf
+mkdir -p "$ROOT/etc/apm"
+cat > "$ROOT/etc/apm/apt-fast.conf" <<EOF
+_SPLITCON=6
+_MAXNUM=9
+MIRRORS=(
+'file://$REPO,http://local-mirror.example/apm'
+)
+EOF
+out="$(run_apm debug)"
+assert_contains "本地配置覆盖路径" "$out" "配置覆盖"
+assert_contains "本地配置覆盖 split" "$out" "split=6"
+assert_contains "本地配置覆盖 maxnum" "$out" "maxnum=9"
+assert_contains "本地配置未写的 key 沿用服务端" "$out" "retry=1"
+assert_contains "本地 MIRRORS 生效" "$out" "local-mirror.example"
+rm -f "$ROOT/etc/apm/apt-fast.conf"
+
 # ===========================================================================
 # 2. install（依赖解析 + base 初始化 + 数据库）
 # ===========================================================================

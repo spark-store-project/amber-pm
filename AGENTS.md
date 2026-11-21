@@ -83,6 +83,9 @@ apm clean
   `https://d.spark-app.store/apm-<架构>.list`、`apt-fast.conf`，
   用其中的 `_SPLITCON/_MINSPLITSZ/_PIECEALGO/_MAX_RETRY` 等参数调用 aria2c，并按
   `MIRRORS` 列表对同一文件做多镜像并行下载（没有 aria2c 时退回 curl 单线程）。
+- 服务端配置缓存在 `apm-conf/lists/apt-fast.conf`；本地可用
+  `/etc/apm/apt-fast.conf` 按 key 覆盖（`MIRRORS` 会整体覆盖服务端镜像列表），
+  优先级高于服务端值。
 - Debian 系宿主上的 `apt`/`aptss`/星火商店仍可直接安装 APM 包；
   `amber-pm-convert`/`amber-pm-addons-maker` 仍使用 base 环境里的 aptss 制作包。
 - 旧版（1.3.x）安装过的包用 `sudo apm migrate` 迁移。

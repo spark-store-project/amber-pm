@@ -708,6 +708,14 @@ apm_debug_info() {
     done
     printf '数据占用:   %s\n' "$(du -sh -- "$APM_STATE_DIR" 2>/dev/null | cut -f1 || echo 未知)"
     printf '下载缓存:   %s\n' "$(du -sh -- "$APM_CACHE_DIR" 2>/dev/null | cut -f1 || echo 0)"
+    if [ -s "$APM_APTFAST_CONF" ] || [ -s "$APM_APTFAST_LOCAL" ]; then
+        _apm_aptss_conf_parse >/dev/null 2>&1 || true
+    fi
+    if [ -s "$APM_APTFAST_LOCAL" ]; then
+        printf '配置覆盖:   %s（已启用，优先于服务端 apt-fast.conf）\n' "$APM_APTFAST_LOCAL"
+    else
+        printf '配置覆盖:   %s（未启用）\n' "$APM_APTFAST_LOCAL"
+    fi
     printf '下载参数:   split=%s minsplit=%s piece=%s retry=%s maxnum=%s maxconn=%s\n' \
         "$APM_SPLITCON" "$APM_MINSPLITSZ" "$APM_PIECEALGO" "$APM_MAXRETRY" "$APM_MAXNUM" "$APM_MAXCONPERSRV"
     local mirrors mirror_count

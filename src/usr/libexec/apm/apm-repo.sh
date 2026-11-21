@@ -16,6 +16,8 @@ APM_APTFAST_CONF="$APM_LISTS_DIR/apt-fast.conf"
 APM_INRELEASE_FILE="$APM_LISTS_DIR/InRelease"
 APM_PACKAGES_FILE="$APM_LISTS_DIR/Packages"
 APM_REPO_META="$APM_LISTS_DIR/repo.meta"
+# 本地覆盖配置（优先级高于服务端下载的 apt-fast.conf）
+APM_APTFAST_LOCAL="${APM_APTFAST_LOCAL:-${APM_ROOT}/etc/apm/apt-fast.conf}"
 
 # 查找可用的仓库公钥：优先系统 apt keyring（deb 安装时提供），
 # 其次随 APM 自带的 keyring（Nix 等没有 /etc/apt 的环境）
@@ -43,6 +45,7 @@ apm_repo_keyring() {
 # aptss 兼容：服务端配置
 # ---------------------------------------------------------------------------
 _apm_conf_value() { # 文件 key
+    [ -f "$2" ] || return 1
     awk -v k="$1" '
         index($0, k "=") == 1 {
             v = substr($0, length(k) + 2)
@@ -54,6 +57,29 @@ _apm_conf_value() { # 文件 key
         }' "$2" 2>/dev/null
 }
 
+# 有效配置：本地 /etc/apm/apt-fast.conf 优先，其次服务端缓存
+_apm_conf_value_effective() { # key
+    local v
+    if [ -s "$APM_APTFAST_LOCAL" ]; then
+        v="$(_apm_conf_value "$1" "$APM_APTFAST_LOCAL")"
+        [ -n "$v" ] && { printf '%s\n' "$v"; return 0; }
+    fi
+    [ -s "$APM_APTFAST_CONF" ] && _apm_conf_value "$1" "$APM_APTFAST_CONF"
+}
+
+# 把有效配置应用到 APM_* 变量
+_apm_aptss_conf_parse() {
+    local v
+    v="$(_apm_conf_value_effective _SPLITCON)" && [ -n "$v" ] && APM_SPLITCON="$v"
+    v="$(_apm_conf_value_effective _MINSPLITSZ)" && [ -n "$v" ] && APM_MINSPLITSZ="$v"
+    v="$(_apm_conf_value_effective _PIECEALGO)" && [ -n "$v" ] && APM_PIECEALGO="$v"
+    v="$(_apm_conf_value_effective _MAX_RETRY)" && [ -n "$v" ] && APM_MAXRETRY="$v"
+    v="$(_apm_conf_value_effective _MAXNUM)" && [ -n "$v" ] && APM_MAXNUM="$v"
+    v="$(_apm_conf_value_effective _MAXCONPERSRV)" && [ -n "$v" ] && APM_MAXCONPERSRV="$v"
+    [ -s "$APM_APTFAST_LOCAL" ] && log.debug "使用本地配置覆盖: $APM_APTFAST_LOCAL"
+    log.debug "下载参数: split=$APM_SPLITCON min-split=$APM_MINSPLITSZ piece=$APM_PIECEALGO retry=$APM_MAXRETRY maxnum=$APM_MAXNUM maxconn=$APM_MAXCONPERSRV"
+}
+
 apm_aptss_conf_load() { # [--refresh]
     local refresh="${1:-}"
     if [ "$refresh" = "--refresh" ] || [ ! -s "$APM_APTFAST_CONF" ]; then
@@ -61,24 +87,27 @@ apm_aptss_conf_load() { # [--refresh]
         apm_http_get "$APM_SPARK_URL/apt-fast.conf" "$APM_APTFAST_CONF" ||
             log.warn "无法获取 apt-fast.conf，使用默认下载参数（或沿用旧配置）"
     fi
-    [ -s "$APM_APTFAST_CONF" ] || return 0
-
-    local v
-    v="$(_apm_conf_value _SPLITCON "$APM_APTFAST_CONF")" && [ -n "$v" ] && APM_SPLITCON="$v"
-    v="$(_apm_conf_value _MINSPLITSZ "$APM_APTFAST_CONF")" && [ -n "$v" ] && APM_MINSPLITSZ="$v"
-    v="$(_apm_conf_value _PIECEALGO "$APM_APTFAST_CONF")" && [ -n "$v" ] && APM_PIECEALGO="$v"
-    v="$(_apm_conf_value _MAX_RETRY "$APM_APTFAST_CONF")" && [ -n "$v" ] && APM_MAXRETRY="$v"
-    v="$(_apm_conf_value _MAXNUM "$APM_APTFAST_CONF")" && [ -n "$v" ] && APM_MAXNUM="$v"
-    v="$(_apm_conf_value _MAXCONPERSRV "$APM_APTFAST_CONF")" && [ -n "$v" ] && APM_MAXCONPERSRV="$v"
-    log.debug "下载参数: split=$APM_SPLITCON min-split=$APM_MINSPLITSZ piece=$APM_PIECEALGO retry=$APM_MAXRETRY maxnum=$APM_MAXNUM maxconn=$APM_MAXCONPERSRV"
+    [ -s "$APM_APTFAST_CONF" ] || [ -s "$APM_APTFAST_LOCAL" ] || return 0
+    _apm_aptss_conf_parse
 }
 
 # 从 apt-fast.conf 的 MIRRORS=( ... ) 为某个 URL 找出可用镜像。
 # 数组的每个元素是一组逗号分隔的镜像地址，第一项是原始源（不重复下载），
 # 其余项与第一项同路径，替换前缀即可得到同一文件的镜像 URL。
+# 选择 MIRRORS 的来源：本地文件里定义了 MIRRORS 就优先用它
+_apm_mirror_source_file() {
+    if [ -s "$APM_APTFAST_LOCAL" ] &&
+        grep -q '^[[:space:]]*MIRRORS=(' "$APM_APTFAST_LOCAL" 2>/dev/null; then
+        printf '%s\n' "$APM_APTFAST_LOCAL"
+    else
+        printf '%s\n' "$APM_APTFAST_CONF"
+    fi
+}
+
 apm_mirror_urls() { # URL
-    local url="$1"
-    [ -s "$APM_APTFAST_CONF" ] || return 0
+    local url="$1" src
+    src="$(_apm_mirror_source_file)"
+    [ -s "$src" ] || return 0
     awk -v url="$url" '
         BEGIN { inmir = 0 }
         /^MIRRORS=\(/ { inmir = 1; next }
@@ -99,7 +128,7 @@ apm_mirror_urls() { # URL
                 print u[i] suffix
             }
             exit
-        }' "$APM_APTFAST_CONF"
+        }' "$src"
 }
 
 # 像 aptss 的 update_list 一样获取 APM 仓库源列表，并解析出仓库基础 URL

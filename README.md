@@ -36,7 +36,7 @@ APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上
 
 ## 使用方法
 ```
-APM - Amber Package Manager 2.0.0~beta2
+APM - Amber Package Manager 2.0.0~beta3
 
 Usage:
   apm [COMMAND] [OPTIONS] [PACKAGES...]
@@ -77,6 +77,19 @@ Commands:
 - 软件包安装在 `/var/lib/apm/<包名>/`，运行方式不变（base 环境 + overlay + bwrap）。
 - 仓库索引来自星火服务端的 apt 兼容索引（`InRelease` GPG 签名 + `Packages` SHA256 校验 +
   deb SHA256 校验），并使用和 aptss 相同的服务配置与多连接下载（aria2c + `MIRRORS` 多镜像并行，缺失 aria2c 时退回 curl）。
+- 服务端配置缓存在 `/var/lib/apm/apm-conf/lists/apt-fast.conf`；如需本地覆盖，
+  可创建 `/etc/apm/apt-fast.conf`（按 key 覆盖，未写的 key 继续用服务端值，
+  其中 `MIRRORS=(...)` 会整体覆盖服务端镜像列表）。
+  示例：
+  ```ini
+  _SPLITCON=8
+  _MAXNUM=5
+  _MAXCONPERSRV=2
+  MIRRORS=(
+  'https://d.spark-app.store/,https://erotica.spark-app.store/'
+  )
+  ```
+  本地文件不会被 `apm update` 覆盖；它优先于服务端下载的配置。
 - 支持 `--force-outside-paths`：软件包默认只允许写入自己的目录；如果要写入其它位置，
   需要显式确认（高风险）。
 - 卸载单个应用会清理 `/var/lib/apm/<包名>` 与所有用户的 `~/.apm/<包名>`；
