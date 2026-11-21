@@ -2,6 +2,7 @@
   lib,
   stdenvNoCC,
   makeWrapper,
+  aria2,
   bash,
   bubblewrap,
   coreutils,
@@ -27,7 +28,7 @@
   xdg-user-dirs,
   xz,
   zenity,
-  version ? "2.0.0~beta11",
+  version ? "2.0.0~rc",
   sourceRoot ? ../.,
   src ? lib.cleanSourceWith {
     src = sourceRoot;
@@ -45,6 +46,7 @@
 
 let
   runtimePath = lib.makeBinPath [
+    aria2
     bash
     bubblewrap
     coreutils

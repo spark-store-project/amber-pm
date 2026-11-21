@@ -36,7 +36,7 @@ APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上
 
 ## 使用方法
 ```
-APM - Amber Package Manager 2.0.0~beta11
+APM - Amber Package Manager 2.0.0~rc
 
 Usage:
   apm [COMMAND] [OPTIONS] [PACKAGES...]
@@ -76,7 +76,7 @@ Commands:
 
 - 软件包安装在 `/var/lib/apm/<包名>/`，运行方式不变（base 环境 + overlay + bwrap）。
 - 仓库索引来自星火服务端的 apt 兼容索引（`InRelease` GPG 签名 + `Packages` SHA256 校验 +
-  deb SHA256 校验），并使用和 aptss 相同的服务配置与多连接下载（aria2c + `MIRRORS` 多镜像并行，缺失 aria2c 时退回 curl）。
+  deb SHA256 校验），并使用和 aptss 相同的服务配置与多连接下载（aria2c + `MIRRORS` 多镜像并行；代码仍保留缺失 aria2c 时的 curl 兜底）。
 - 服务端配置缓存在 `/var/lib/apm/apm-conf/lists/apt-fast.conf`；如需本地覆盖，
   可创建 `/etc/apm/apt-fast.conf`（按 key 覆盖，未写的 key 继续用服务端值，
   其中 `MIRRORS=(...)` 会整体覆盖服务端镜像列表）。
@@ -96,8 +96,8 @@ Commands:
   再询问 y/n；`-y` 跳过确认，适合脚本和 GUI 调用。
 - 下载时会显示任务序号、进度条、百分比、速度、已用服务器数和连接数；
   没有 TTY 或设置 `APM_NO_PROGRESS=1` 时退回普通日志。
-- 下载器优先 aria2c，没有 aria2c 时用 curl（同样有进度条），也可用
-  `APM_DOWNLOAD_ENGINE=curl` 强制 curl。
+- aria2 已是包依赖；下载器优先 aria2c，代码仍保留没有 aria2c 时的 curl 兜底。
+  也可用 `APM_DOWNLOAD_ENGINE=curl` 强制 curl。
 - `apm remove` 会计算反向依赖闭包，按“依赖方先删”的顺序卸载。
 - 卸载单个应用会清理 `/var/lib/apm/<包名>` 与所有用户的 `~/.apm/<包名>`；
   卸载 APM 本身会一并删除 `/var/lib/apm` 下的全部应用和 `~/.apm`。

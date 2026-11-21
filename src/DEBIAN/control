@@ -4,7 +4,7 @@ Version: @VERSION@
 Architecture: all
 Maintainer: shenmo <shenmo@spark-app.store>
 Installed-Size: 13000
-Depends: zenity | garma, bubblewrap, policykit-1 | pkexec | polkit-1 | polkit, systemd, procps, coreutils, fuse-overlayfs, xz-utils | xz, zstd, gpgv, tar, libnotify-bin, curl, xdg-user-dirs, bash
+Depends: zenity | garma, bubblewrap, policykit-1 | pkexec | polkit-1 | polkit, systemd, procps, coreutils, fuse-overlayfs, xz-utils | xz, zstd, gpgv, tar, libnotify-bin, curl, aria2, xdg-user-dirs, bash
 Recommends: dpkg, fakeroot, busybox, bash-completion
 Section: misc
 Conflicts: ace-host-integration
