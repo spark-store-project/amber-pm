@@ -84,6 +84,28 @@ _cleanup_stale_links() {
 ensure_dir "$APP_TARGET_DIR"
 ensure_dir "$ICON_TARGET_DIR"
 
+# APM's host integration data directory. XDG_DATA_DIRS points here via
+# /etc/profile.d/apm.sh, /etc/X11/Xsession.d/20apm and the systemd user
+# environment generator, so desktop environments can find APM applications.
+APM_XDG_DATA_DIR="$APM_STATE_DIR/apm/files/ace-env/amber-ce-tools/data-dir"
+
+_link_apm_data_dir() { # name target
+    local name="$1" target="$2"
+    local link="$APM_XDG_DATA_DIR/$name"
+    [ -e "$target" ] || return 0
+    if [ -L "$link" ] || [ ! -e "$link" ]; then
+        ln -sfn "$target" "$link" 2>/dev/null || true
+    fi
+}
+
+if ensure_dir "$APM_XDG_DATA_DIR"; then
+    _link_apm_data_dir applications "$APP_TARGET_DIR"
+    _link_apm_data_dir icons "$ICON_TARGET_DIR"
+    for _shared_dir in mime pixmaps templates; do
+        _link_apm_data_dir "$_shared_dir" "/usr/share/$_shared_dir"
+    done
+fi
+
 for pkgdir in "$APM_STATE_DIR"/*/; do
     [ -d "$pkgdir" ] || continue
     pkg="$(basename -- "$pkgdir")"

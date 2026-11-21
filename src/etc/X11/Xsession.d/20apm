@@ -1,0 +1,12 @@
+# Ensure the standard XDG data directories are present even on minimal hosts.
+if [ -z "${XDG_DATA_DIRS:-}" ]; then
+    XDG_DATA_DIRS="/usr/local/share:/usr/share"
+fi
+
+# Make APM's host integration data directory visible to the desktop session.
+apm_xdg_data_dir="/var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir"
+case ":${XDG_DATA_DIRS}:" in
+    *":${apm_xdg_data_dir}:"*) ;;
+    *) XDG_DATA_DIRS="${XDG_DATA_DIRS}:${apm_xdg_data_dir}" ;;
+esac
+export XDG_DATA_DIRS

@@ -1,0 +1,9 @@
+#!/bin/sh
+# Add APM's host integration data directory to the user session environment.
+apm_xdg_data_dir="/var/lib/apm/apm/files/ace-env/amber-ce-tools/data-dir"
+xdg_data_dirs="${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+case ":${xdg_data_dirs}:" in
+    *":${apm_xdg_data_dir}:"*) ;;
+    *) xdg_data_dirs="${xdg_data_dirs}:${apm_xdg_data_dir}" ;;
+esac
+printf 'XDG_DATA_DIRS=%s\n' "$xdg_data_dirs"
