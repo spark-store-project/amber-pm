@@ -191,10 +191,12 @@ apm_fetch_deb() { # 包名 -> 本地 deb 路径
         rm -f -- "$dest"
     fi
 
-    log.info "下载 $pkg ($(apm_repo_size_human "$pkg"))"
+    if ! _apm_dl_progress_enabled; then
+        log.info "下载 $pkg ($(apm_repo_size_human "$pkg"))"
+    fi
     local url
     url="$(apm_repo_pkg_url "$pkg")"
-    apm_download_one "$url" "$dest" || {
+    apm_download_one "$url" "$dest" "$pkg" "$(apm_repo_size "$pkg")" || {
         log.error "$(apm_t "下载失败: $url" "Download failed: $url")"
         return 1
     }
@@ -577,6 +579,8 @@ apm_cmd_install() {
         fi
 
         APM_FORCE_OUTSIDE="$force_outside"
+        APM_DL_TASK_TOTAL="$plan_total"
+        [ "$APM_DL_TASK_TOTAL" -ge 1 ] 2>/dev/null || APM_DL_TASK_TOTAL=1
         for p in "${_APM_RESOLVE_ORDER[@]}"; do
             local p_auto=1
             [ "${_APM_RESOLVE_EXPLICIT[$p]:-0}" = "1" ] && p_auto="$auto"
@@ -1149,6 +1153,8 @@ apm_cmd_download() {
     local dir="."
     [ $# -gt 0 ] || die "$(apm_t "请指定软件包" "Please specify package(s)")"
     apm_repo_ensure || return 1
+    APM_DL_TASK_TOTAL="${#}"
+    [ "$APM_DL_TASK_TOTAL" -ge 1 ] 2>/dev/null || APM_DL_TASK_TOTAL=1
     local p
     for p in "$@"; do
         local fn dest
@@ -1158,8 +1164,10 @@ apm_cmd_download() {
             return 1
         }
         dest="$dir/$(basename "$fn")"
-        log.info "$(apm_t "下载 $p -> $dest" "Downloading $p -> $dest")"
-        apm_download_one "$(apm_repo_pkg_url "$p")" "$dest" || return 1
+        if ! _apm_dl_progress_enabled; then
+            log.info "$(apm_t "下载 $p -> $dest" "Downloading $p -> $dest")"
+        fi
+        apm_download_one "$(apm_repo_pkg_url "$p")" "$dest" "$p" "$(apm_repo_size "$p")" || return 1
     done
 }
 

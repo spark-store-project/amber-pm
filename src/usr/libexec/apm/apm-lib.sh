@@ -372,69 +372,191 @@ apm_vercmp_ge() { [ "$(apm_vercmp "$1" "$2")" -ge 0 ]; }
 apm_vercmp_gt() { [ "$(apm_vercmp "$1" "$2")" -gt 0 ]; }
 
 # ---------------------------------------------------------------------------
+# 下载进度显示
+# ---------------------------------------------------------------------------
+APM_DL_TASK_INDEX=0
+APM_DL_TASK_TOTAL=1
+APM_DL_ACTIVE=0
+
+_apm_dl_progress_enabled() {
+    [ "${APM_NO_PROGRESS:-0}" = "1" ] && return 1
+    [ -t 2 ]
+}
+
+_apm_dl_now_ms() {
+    local n
+    n="$(date +%s%3N 2>/dev/null)" || n=""
+    if [ -n "$n" ] && [ "$n" -eq "$n" ] 2>/dev/null; then
+        printf '%s\n' "$n"
+    else
+        printf '%s000\n' "$(date +%s)"
+    fi
+}
+
+_apm_dl_file_size() {
+    stat -c '%s' -- "$1" 2>/dev/null || printf '0\n'
+}
+
+_apm_dl_render() { # label got total servers conns done
+    local label="$1" got="$2" total="$3" servers="$4" conns="$5" done="$6"
+    local pct=0 bar="" width=24 filled empty
+    local now speed=0 dt db
+    case "$got" in '' | *[!0-9]*) got=0 ;; esac
+    case "$total" in '' | *[!0-9]*) total=0 ;; esac
+    if [ "$total" -gt 0 ]; then
+        pct=$((got * 100 / total))
+        [ "$pct" -gt 100 ] && pct=100
+    fi
+    filled=$((pct * width / 100))
+    [ "$filled" -gt "$width" ] && filled="$width"
+    printf -v bar '%*s' "$filled" ''
+    bar="${bar// /█}"
+    printf -v empty '%*s' $((width - filled)) ''
+    empty="${empty// /░}"
+    now="$(_apm_dl_now_ms)"
+    dt=$((now - ${APM_DL_LAST_MS:-$now}))
+    db=$((got - ${APM_DL_LAST_BYTES:-0}))
+    if [ "$dt" -gt 0 ] && [ "$db" -gt 0 ]; then
+        speed=$((db * 1000 / dt))
+    fi
+    APM_DL_LAST_MS="$now"
+    APM_DL_LAST_BYTES="$got"
+
+    local got_h total_h speed_h
+    got_h="$(apm_human_size "$got")"
+    if [ "$total" -gt 0 ]; then
+        total_h="$(apm_human_size "$total")"
+    else
+        total_h="?"
+    fi
+    speed_h="$(apm_human_size "$speed")"
+
+    local suffix=""
+    [ "$servers" != "" ] && suffix="$(apm_t "服务器 ${servers}" "servers ${servers}")"
+    [ "$conns" != "" ] && suffix="${suffix}  $(apm_t "连接 ${conns}" "conns ${conns}")"
+    [ "$done" = "1" ] && suffix="${suffix}  $(apm_t "完成" "done")"
+    [ "$done" = "2" ] && suffix="${suffix}  $(apm_t "失败" "failed")"
+
+    local pct_s suffix_color=""
+    if [ "$total" -gt 0 ]; then pct_s="${pct}%"; else pct_s="--%"; fi
+    if [ "$done" = "1" ]; then
+        suffix_color=$'\033[32m'
+    elif [ "$done" = "2" ]; then
+        suffix_color=$'\033[31m'
+    fi
+    printf '\r\033[K\033[36m[%s/%s]\033[0m \033[1m%s\033[0m  %s \033[32m[%s\033[0m\033[2m%s\033[0m\033[32m]\033[0m %s/%s  %s/s  %s%s\033[0m' \
+        "$APM_DL_TASK_INDEX" "$APM_DL_TASK_TOTAL" "$label" "$pct_s" \
+        "$bar" "$empty" "$got_h" "$total_h" "$speed_h" "$suffix" "$suffix_color" >&2
+}
+
+_apm_dl_progress_begin() { # label total servers conns [noinc]
+    APM_DL_LABEL="$1"
+    APM_DL_TOTAL="$2"
+    APM_DL_SERVERS="$3"
+    APM_DL_CONNS="$4"
+    if [ "${5:-0}" != "1" ]; then
+        APM_DL_TASK_INDEX=$((APM_DL_TASK_INDEX + 1))
+    fi
+    [ "${APM_DL_TASK_TOTAL:-0}" -ge 1 ] 2>/dev/null || APM_DL_TASK_TOTAL=1
+    APM_DL_LAST_BYTES=0
+    APM_DL_LAST_MS="$(_apm_dl_now_ms)"
+    APM_DL_ACTIVE=1
+    if _apm_dl_progress_enabled; then
+        printf '\033[?25l' >&2
+    fi
+}
+
+_apm_dl_progress_wait() { # pid file
+    local pid="$1" file="$2" rc got
+    if ! _apm_dl_progress_enabled; then
+        wait "$pid"
+        rc=$?
+        APM_DL_ACTIVE=0
+        return "$rc"
+    fi
+    while kill -0 "$pid" 2>/dev/null; do
+        got="$(_apm_dl_file_size "$file")"
+        _apm_dl_render "$APM_DL_LABEL" "$got" "$APM_DL_TOTAL" "$APM_DL_SERVERS" "$APM_DL_CONNS" 0
+        sleep 0.2
+    done
+    wait "$pid"
+    rc=$?
+    got="$(_apm_dl_file_size "$file")"
+    if [ "$rc" -eq 0 ]; then
+        _apm_dl_render "$APM_DL_LABEL" "$got" "$APM_DL_TOTAL" "$APM_DL_SERVERS" "$APM_DL_CONNS" 1
+    else
+        _apm_dl_render "$APM_DL_LABEL" "$got" "$APM_DL_TOTAL" "$APM_DL_SERVERS" "$APM_DL_CONNS" 2
+    fi
+    printf '\n\033[?25h' >&2
+    APM_DL_ACTIVE=0
+    return "$rc"
+}
+
+# curl 后台下载：依次尝试主源和镜像；输出由调用方重定向
+_apm_curl_download_worker() { # dest url...
+    local dest="$1" u
+    shift
+    for u in "$@"; do
+        rm -f -- "${dest}.part"
+        if curl -fL --retry "${APM_MAXRETRY:-2}" --connect-timeout 30 --max-time 0 \
+            --silent --show-error -o "${dest}.part" "$u"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# ---------------------------------------------------------------------------
 # 下载：优先 aria2c（与 aptss/apt-fast 相同的服务端配置参数），否则 curl
 # ---------------------------------------------------------------------------
-apm_download_one() { # url dest
-    local url="$1" dest="$2"
-    local dir base rc log err
+apm_download_one() { # url dest [label] [total]
+    local url="$1" dest="$2" label="${3:-$(basename "$2")}" total="${4:-0}"
+    local dir base rc pid log err started=0
     dir="$(dirname "$dest")"
     base="$(basename "$dest")"
     mkdir -p "$dir" || return 1
 
-    if [ "$APM_DOWNLOAD_ENGINE" != "curl" ] && command -v aria2c >/dev/null 2>&1; then
-        # 下载源：主源 + aptss 配置里的镜像（同一文件的多服务器下载）
-        local -a urls=("$url")
-        local mirror
-        if declare -F apm_mirror_urls >/dev/null 2>&1; then
-            while IFS= read -r mirror; do
-                [ -n "$mirror" ] && urls+=("$mirror")
-            done < <(apm_mirror_urls "$url" 2>/dev/null)
-        fi
+    # 下载源：主源 + aptss 配置里的镜像（同一文件的多服务器下载）
+    local -a urls=("$url")
+    local mirror
+    if declare -F apm_mirror_urls >/dev/null 2>&1; then
+        while IFS= read -r mirror; do
+            [ -n "$mirror" ] && urls+=("$mirror")
+        done < <(apm_mirror_urls "$url" 2>/dev/null)
+    fi
+    local servers="${#urls[@]}"
 
+    if [ "$APM_DOWNLOAD_ENGINE" != "curl" ] && command -v aria2c >/dev/null 2>&1; then
         local split="${APM_SPLITCON:-8}"
         local maxconn="${APM_MAXCONPERSRV:-1}"
         case "$split" in '' | *[!0-9]*) split=8 ;; esac
         case "$maxconn" in '' | *[!0-9]*) maxconn=1 ;; esac
         [ "$split" -ge 1 ] || split=8
         [ "$maxconn" -ge 1 ] || maxconn=1
-
         # 有镜像时每个服务器 1 条连接也能多线；没有镜像时用分片数强开多连接
-        if [ ${#urls[@]} -le 1 ] && [ "$maxconn" -le 1 ]; then
+        if [ "$servers" -le 1 ] && [ "$maxconn" -le 1 ]; then
             maxconn="$split"
         fi
 
-        local -a progress=(--summary-interval=0 --console-log-level=error)
-        if [ -t 2 ]; then
-            progress=(--summary-interval=1 --console-log-level=warn)
-        fi
-
         log="$(mktemp "${TMPDIR:-/tmp}/apm-aria2.XXXXXX" 2>/dev/null || echo /dev/null)"
-        if [ -t 2 ]; then
-            # 进度输出到 stderr，避免污染 apm_fetch_deb 等函数的 stdout
-            aria2c --no-conf -c \
-                -s "$split" -x "$maxconn" -j "${APM_MAXNUM:-5}" \
-                -k "${APM_MINSPLITSZ:-1M}" \
-                --stream-piece-selector="${APM_PIECEALGO:-default}" \
-                --connect-timeout=30 --timeout=40 \
-                --max-tries="${APM_MAXRETRY:-2}" --retry-wait=1 \
-                --async-dns=false --check-certificate=false \
-                --user-agent="aptss/4.x apm/${APM_VERSION:-2}" \
-                "${progress[@]}" -d "$dir" -o "$base" "${urls[@]}" 1>&2 2>>"$log"
-        else
-            aria2c --no-conf -c \
-                -s "$split" -x "$maxconn" -j "${APM_MAXNUM:-5}" \
-                -k "${APM_MINSPLITSZ:-1M}" \
-                --stream-piece-selector="${APM_PIECEALGO:-default}" \
-                --connect-timeout=30 --timeout=40 \
-                --max-tries="${APM_MAXRETRY:-2}" --retry-wait=1 \
-                --async-dns=false --check-certificate=false \
-                --user-agent="aptss/4.x apm/${APM_VERSION:-2}" \
-                "${progress[@]}" -d "$dir" -o "$base" "${urls[@]}" >/dev/null 2>>"$log"
-        fi
+        _apm_dl_progress_begin "$label" "$total" "$servers" "$maxconn"
+        started=1
+        aria2c --no-conf -c \
+            -s "$split" -x "$maxconn" -j "${APM_MAXNUM:-5}" \
+            -k "${APM_MINSPLITSZ:-1M}" \
+            --stream-piece-selector="${APM_PIECEALGO:-default}" \
+            --connect-timeout=30 --timeout=40 \
+            --max-tries="${APM_MAXRETRY:-2}" --retry-wait=1 \
+            --async-dns=false --check-certificate=false \
+            --user-agent="aptss/4.x apm/${APM_VERSION:-2}" \
+            --summary-interval=0 --console-log-level=error \
+            -d "$dir" -o "$base" "${urls[@]}" >/dev/null 2>>"$log" &
+        pid=$!
+        _apm_dl_progress_wait "$pid" "$dest"
         rc=$?
         if [ "$rc" -eq 0 ] && [ -s "$dest" ]; then
             [ "$log" != "/dev/null" ] && rm -f -- "$log"
-            log.debug "aria2c 下载完成：源 ${#urls[@]} 个，split=$split，单服务器连接=$maxconn"
+            log.debug "aria2c 下载完成：源 ${servers} 个，split=$split，单服务器连接=$maxconn"
             return 0
         fi
         err=""
@@ -445,12 +567,24 @@ apm_download_one() { # url dest
         log.warn "$(apm_t "aria2c 下载失败（rc=$rc），改用 curl 单线程下载: ${err:-未知错误}" "aria2c download failed (rc=$rc); falling back to single-thread curl: ${err:-unknown error}")"
     fi
 
-    curl -fL --retry "${APM_MAXRETRY:-2}" --connect-timeout 30 --max-time 0 \
-        -o "$dest.part" "$url" || {
-        rm -f "$dest.part"
-        return 1
-    }
-    mv -f "$dest.part" "$dest"
+    # curl：单连接，但会按顺序尝试镜像；显示 1/N 个服务器
+    local curl_servers=1
+    [ "$servers" -gt 1 ] && curl_servers="1/$servers"
+    local noinc=0
+    [ "$started" = "1" ] && noinc=1
+    _apm_dl_progress_begin "$label" "$total" "$curl_servers" 1 "$noinc"
+    log="$(mktemp "${TMPDIR:-/tmp}/apm-curl.XXXXXX" 2>/dev/null || echo /dev/null)"
+    _apm_curl_download_worker "$dest" "${urls[@]}" >/dev/null 2>>"$log" &
+    pid=$!
+    _apm_dl_progress_wait "$pid" "${dest}.part"
+    rc=$?
+    [ "$log" != "/dev/null" ] && rm -f -- "$log"
+    if [ "$rc" -eq 0 ] && [ -s "${dest}.part" ]; then
+        mv -f -- "${dest}.part" "$dest"
+        return 0
+    fi
+    rm -f -- "${dest}.part"
+    return 1
 }
 
 # 配置/列表/索引等小文件直接用 curl 下载，写入临时文件后原子替换。

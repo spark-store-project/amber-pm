@@ -154,6 +154,7 @@ apm ssaudit <包名|deb路径>      # 只校验，不安装
 | `APM_INSECURE=1` | 跳过仓库签名校验（不建议） |
 | `APM_NO_TRIGGERS=1` | 安装/卸载后不执行桌面集成等动作 |
 | `APM_DOWNLOAD_ENGINE=curl` | 强制使用 curl 下载 |
+| `APM_NO_PROGRESS=1` | 关闭下载进度条（非 TTY 会自动关闭） |
 | `IS_ACE_ENV` / `IS_APM_ENV` | 容器内标识（由 ace-run 设置） |
 
 ## 7. 工作原理

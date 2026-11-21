@@ -36,7 +36,7 @@ APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上
 
 ## 使用方法
 ```
-APM - Amber Package Manager 2.0.0~beta7
+APM - Amber Package Manager 2.0.0~beta8
 
 Usage:
   apm [COMMAND] [OPTIONS] [PACKAGES...]
@@ -94,6 +94,10 @@ Commands:
   需要显式确认（高风险）。
 - `apm install` / `apm remove` 都会先显示将要安装/卸载的包（含依赖、版本），
   再询问 y/n；`-y` 跳过确认，适合脚本和 GUI 调用。
+- 下载时会显示任务序号、进度条、百分比、速度、已用服务器数和连接数；
+  没有 TTY 或设置 `APM_NO_PROGRESS=1` 时退回普通日志。
+- 下载器优先 aria2c，没有 aria2c 时用 curl（同样有进度条），也可用
+  `APM_DOWNLOAD_ENGINE=curl` 强制 curl。
 - `apm remove` 会计算反向依赖闭包，按“依赖方先删”的顺序卸载。
 - 卸载单个应用会清理 `/var/lib/apm/<包名>` 与所有用户的 `~/.apm/<包名>`；
   卸载 APM 本身会一并删除 `/var/lib/apm` 下的全部应用和 `~/.apm`。
