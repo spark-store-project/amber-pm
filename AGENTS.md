@@ -143,7 +143,7 @@ apm ssaudit <包名|deb路径>      # 只校验，不安装
 | 变量 | 作用 |
 |---|---|
 | `APM_DEBUG=1` | 输出调试日志 |
-| `APM_LANG` | 输出语言：`auto`（按 `LC_ALL/LC_MESSAGES/LANG`）、`zh`、`en` |
+| `APM_LANG` | 输出语言：`auto`（按 `LANGUAGE` → `LC_ALL/LC_MESSAGES/LANG`）、`zh`、`en`、`de`、`fr`、`es`、`ru`、`ja`、`ko`、`pt`、`it` |
 | `APM_RUN_DEBUG=1` | 打印容器最终 bwrap argv |
 | `APM_ROOT=<目录>` | 把数据目录重定向到测试目录（不要求 root，用于测试） |
 | `APM_STATE_DIR` | 覆盖包数据目录（默认 `$APM_ROOT/var/lib/apm`） |
@@ -181,7 +181,7 @@ apm policy <包>                      # 已安装/候选版本
   `/usr/share/apm/apm-archive-keyring.gpg`，以及系统时间。
 - **安装提示越界路径**：包写入了自身目录之外；确认来源可信后使用
   `--force-outside-paths`。
-- **卸载被拒绝**：有其它已安装包依赖它，先卸载依赖方或加 `--force`。
+- **卸载依赖方**：`apm remove` 会显示依赖闭包并询问 y/n；`-y` 跳过确认，`--force` 强制卸载。
 - **NVIDIA**：`amber-pm-configure-nvidia-host`（或安装后的触发动作）会把主机驱动
   文件同步到各 base 环境。
 

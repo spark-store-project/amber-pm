@@ -1,0 +1,23 @@
+# ru translations for APM
+declare -gA APM_T_RU=(
+    [remove.not_installed]="Не установлено: %s"
+    [remove.refuse]="Следующие установленные пакеты зависят от %s; удаление отклонено:"
+    [remove.force_hint]="Сначала удалите их или используйте --force"
+    [remove.removing]="Удаление %s"
+    [remove.header]="Будут удалены следующие пакеты:"
+    [remove.count]="Будет удалено пакетов: %s"
+    [remove.prompt]="Продолжить? [Y/n] "
+    [remove.aborted]="Отменено."
+    [install.installing]="Установка %s %s"
+    [install.reinstalling]="%s: переустановка %s"
+    [install.latest]="%s уже последней версии (%s), пропуск"
+    [install.upgrading]="%s: обновление %s -> %s"
+    [install.no_upgrades]="Нет пакетов для обновления."
+    [repo.fetch_conf]="Получение конфигурации службы Spark apt-fast.conf"
+    [repo.inrelease_verified]="Подпись InRelease проверена"
+    [repo.release_verified]="Подпись Release проверена"
+    [repo.download_index]="Загрузка индекса %s"
+    [repo.index_verified]="SHA256 индекса проверен"
+    [repo.index_updated]="Индекс репозитория обновлён (пакетов: %s)"
+    [repo.fetching]="Локального индекса нет; получение..."
+)

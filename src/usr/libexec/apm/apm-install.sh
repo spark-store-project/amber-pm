@@ -340,7 +340,7 @@ apm_install_deb() {
     local old_version=""
     apm_db_installed "$pkg" && old_version="$(apm_db_version "$pkg")"
 
-    log.info "$(apm_t "安装 $pkg $version" "Installing $pkg $version")"
+    log.info "$(printf "$(apm_tk install.installing "安装 %s %s" "Installing %s %s")" "$pkg" "$version")"
     _apm_apply_staging "$staging" || {
         log.error "$(apm_t "$pkg: 写入文件失败" "$pkg: failed to write files")"
         rm -rf -- "$staging" "$listfile"
@@ -408,20 +408,20 @@ apm_install_one_target() { # 包名 auto
         inst="$(apm_vercmp "$inst_version" "$version")"
         if [ "$inst" = "0" ]; then
             if [ "${APM_REINSTALL:-0}" = "1" ]; then
-                log.info "$(apm_t "$pkg: 重新安装 $version" "$pkg: reinstalling $version")"
+                log.info "$(printf "$(apm_tk install.reinstalling "%s: 重新安装 %s" "%s: reinstalling %s")" "$pkg" "$version")"
                 local deb
                 deb="$(apm_fetch_deb "$pkg")" || return 1
                 apm_install_deb "$deb" "$pkg" "$auto" reinstall "$APM_FORCE_OUTSIDE"
                 return $?
             fi
-            log.info "$(apm_t "$pkg 已是最新版本（$version），跳过" "$pkg is already the newest version ($version), skipping")"
+            log.info "$(printf "$(apm_tk install.latest "%s 已是最新版本（%s），跳过" "%s is already the newest version (%s), skipping")" "$pkg" "$version")"
             return 0
         fi
         if [ "$inst" = "1" ] && [ "$inst_version" != "unknown" ]; then
             log.warn "$(apm_t "$pkg 已安装更高版本（$inst_version > $version），跳过" "$pkg has a newer version installed ($inst_version > $version), skipping")"
             return 0
         fi
-        log.info "$(apm_t "$pkg: 升级 $inst_version -> $version" "$pkg: upgrading $inst_version -> $version")"
+        log.info "$(printf "$(apm_tk install.upgrading "%s: 升级 %s -> %s" "%s: upgrading %s -> %s")" "$pkg" "$inst_version" "$version")"
         local deb
         deb="$(apm_fetch_deb "$pkg")" || return 1
         apm_install_deb "$deb" "$pkg" "$auto" upgrade "$APM_FORCE_OUTSIDE"
@@ -615,20 +615,20 @@ apm_removal_order() { # 包名...
 apm_remove_pkg() { # 包名 [force]
     local pkg="$1" force="${2:-0}"
     apm_db_installed "$pkg" || {
-        log.error "$(apm_t "未安装: $pkg" "Not installed: $pkg")"
+        log.error "$(printf "$(apm_tk remove.not_installed "未安装: %s" "Not installed: %s")" "$pkg")"
         return 1
     }
 
     local rdeps
     rdeps="$(apm_installed_rdepends "$pkg")"
     if [ -n "$rdeps" ] && [ "$force" != "1" ]; then
-        log.error "$(apm_t "以下已安装的包依赖 $pkg，已拒绝卸载：" "The following installed packages depend on $pkg; refusing to remove:")"
+        log.error "$(printf "$(apm_tk remove.refuse "以下已安装的包依赖 %s，已拒绝卸载：" "The following installed packages depend on %s; refusing to remove:")" "$pkg")"
         printf '%s\n' "$rdeps" | sed 's/^/    /' >&2
-        log.error "$(apm_t "可先卸载它们，或使用 --force 强制卸载" "Remove them first, or use --force to override")"
+        log.error "$(apm_tk remove.force_hint "可先卸载它们，或使用 --force 强制卸载" "Remove them first, or use --force to override")"
         return 1
     fi
 
-    log.info "$(apm_t "卸载 $pkg" "Removing $pkg")"
+    log.info "$(printf "$(apm_tk remove.removing "卸载 %s" "Removing %s")" "$pkg")"
     local other
     other="$(mktemp "${TMPDIR:-/tmp}/apm-other.XXXXXX")" || return 1
     apm_db_other_files "$pkg" > "$other"
@@ -694,25 +694,25 @@ apm_cmd_remove() {
     mapfile -t order < <(apm_removal_order "${plan[@]}")
 
     {
-        printf '%s\n' "$(apm_t "将会卸载以下软件包：" "The following packages will be REMOVED:")"
+        printf '%s\n' "$(apm_tk remove.header "将会卸载以下软件包：" "The following packages will be REMOVED:")"
         for p in "${order[@]}"; do
             printf '  %s\n' "$p"
         done
-        printf '%s\n' "$(apm_t "共 ${#order[@]} 个软件包。" "${#order[@]} package(s) will be removed.")"
+        printf "$(apm_tk remove.count "共 %s 个软件包。" "%s package(s) will be removed.")\n" "${#order[@]}"
     } >&2
 
     if [ "$assume_yes" != "1" ] && [ "$force" != "1" ]; then
-        printf '%s' "$(apm_t "是否继续？[Y/n] " "Do you want to continue? [Y/n] ")" >&2
+        printf '%s' "$(apm_tk remove.prompt "是否继续？[Y/n] " "Do you want to continue? [Y/n] ")" >&2
         local answer=""
         if ! IFS= read -r answer; then
             printf '\n' >&2
-            log.info "$(apm_t "已取消。" "Aborted.")"
+            log.info "$(apm_tk remove.aborted "已取消。" "Aborted.")"
             return 1
         fi
         case "$answer" in
             "" | y | Y | yes | YES | Yes) ;;
             *)
-                log.info "$(apm_t "已取消。" "Aborted.")"
+                log.info "$(apm_tk remove.aborted "已取消。" "Aborted.")"
                 return 1
                 ;;
         esac
@@ -828,7 +828,7 @@ apm_cmd_upgrade() {
     fi
 
     [ ${#targets[@]} -gt 0 ] || {
-        log.info "$(apm_t "没有需要升级的软件包" "No packages need upgrading")"
+        log.info "$(apm_tk install.no_upgrades "没有需要升级的软件包" "No packages need upgrading")"
         return 0
     }
 
@@ -850,7 +850,7 @@ apm_cmd_hold() {
     local p any_failed=0
     for p in "$@"; do
         apm_db_installed "$p" || {
-            log.error "$(apm_t "未安装: $p" "Not installed: $p")"
+            log.error "$(printf "$(apm_tk remove.not_installed "未安装: %s" "Not installed: %s")" "$p")"
             any_failed=1
             continue
         }
@@ -864,7 +864,7 @@ apm_cmd_unhold() {
     local p any_failed=0
     for p in "$@"; do
         apm_db_installed "$p" || {
-            log.error "$(apm_t "未安装: $p" "Not installed: $p")"
+            log.error "$(printf "$(apm_tk remove.not_installed "未安装: %s" "Not installed: %s")" "$p")"
             any_failed=1
             continue
         }

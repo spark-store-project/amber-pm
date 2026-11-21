@@ -1,0 +1,23 @@
+# ko translations for APM
+declare -gA APM_T_KO=(
+    [remove.not_installed]="설치되지 않음: %s"
+    [remove.refuse]="다음 설치된 패키지가 %s에 의존하므로 제거를 거부했습니다:"
+    [remove.force_hint]="먼저 해당 패키지를 제거하거나 --force를 사용하세요"
+    [remove.removing]="%s 제거 중"
+    [remove.header]="다음 패키지가 제거됩니다:"
+    [remove.count]="%s개 패키지가 제거됩니다."
+    [remove.prompt]="계속하시겠습니까? [Y/n] "
+    [remove.aborted]="취소되었습니다."
+    [install.installing]="%s %s 설치 중"
+    [install.reinstalling]="%s: %s 재설치 중"
+    [install.latest]="%s은(는) 이미 최신 버전(%s)입니다. 건너뜁니다"
+    [install.upgrading]="%s: %s -> %s 업그레이드 중"
+    [install.no_upgrades]="업그레이드할 패키지가 없습니다."
+    [repo.fetch_conf]="Spark 서비스 설정 apt-fast.conf 가져오는 중"
+    [repo.inrelease_verified]="InRelease 서명 검증 완료"
+    [repo.release_verified]="Release 서명 검증 완료"
+    [repo.download_index]="인덱스 %s 다운로드 중"
+    [repo.index_verified]="인덱스 SHA256 검증 완료"
+    [repo.index_updated]="저장소 인덱스 업데이트 완료(%s개 패키지)"
+    [repo.fetching]="로컬 인덱스가 없습니다. 가져오는 중..."
+)

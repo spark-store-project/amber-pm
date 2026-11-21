@@ -286,6 +286,8 @@ assert_contains "读取 aptss 服务配置" "$out" "获取星火服务配置"
 assert_contains "索引更新完成" "$out" "仓库索引已更新"
 assert_file "$(state)/apm-conf/lists/Packages" "索引文件已保存"
 assert_file "$SPARK/apt-fast.conf" "服务配置已缓存"
+out="$(LANGUAGE=de APM_TEST_LANG=auto run_apm update)"
+assert_contains "德语环境更新提示" "$out" "Repository-Index"
 
 # 1.1 本地覆盖 /etc/apm/apt-fast.conf
 mkdir -p "$ROOT/etc/apm"
@@ -317,6 +319,8 @@ assert_eq "依赖包标记为 auto" "1" "$(awk '$1=="Auto:"{print $2}' "$(state)
 assert_eq "直接安装的包标记为 manual" "0" "$(awk '$1=="Auto:"{print $2}' "$(state)/apm-conf/db/fake-app/status")"
 out="$(APM_TEST_LANG=en run_apm install fake-app)"
 assert_contains "英文环境安装提示" "$out" "already the newest version"
+out="$(LANGUAGE=ja APM_TEST_LANG=auto run_apm install fake-app)"
+assert_contains "日语环境安装提示" "$out" "既に最新バージョン"
 
 out="$(run_apm list)"
 assert_contains "list 显示已安装包" "$out" "fake-app/"
@@ -404,6 +408,9 @@ assert_file "$(state)/fake-base" "未确认时 base 仍存在"
 out="$(APM_TEST_LANG=en run_apm remove fake-base)"
 assert_contains "英文环境使用英文提示" "$out" "Do you want to continue"
 assert_contains "英文环境使用英文计划" "$out" "will be REMOVED"
+out="$(LANGUAGE=ja APM_TEST_LANG=auto run_apm remove fake-base)"
+assert_contains "日语环境使用日语提示" "$out" "続行しますか"
+assert_contains "日语环境使用日语计划" "$out" "以下のパッケージ"
 
 out="$(run_apm remove -y fake-base)"
 assert_contains "先卸载依赖方" "$out" "卸载 fake-app"

@@ -1,0 +1,23 @@
+# fr translations for APM
+declare -gA APM_T_FR=(
+    [remove.not_installed]="Non installé : %s"
+    [remove.refuse]="Les paquets installés suivants dépendent de %s ; suppression refusée :"
+    [remove.force_hint]="Supprimez-les d'abord ou utilisez --force"
+    [remove.removing]="Suppression de %s"
+    [remove.header]="Les paquets suivants seront SUPPRIMÉS :"
+    [remove.count]="%s paquet(s) seront supprimés."
+    [remove.prompt]="Continuer ? [O/n] "
+    [remove.aborted]="Abandonné."
+    [install.installing]="Installation de %s %s"
+    [install.reinstalling]="%s : réinstallation de %s"
+    [install.latest]="%s est déjà la version la plus récente (%s), ignoré"
+    [install.upgrading]="%s : mise à jour de %s -> %s"
+    [install.no_upgrades]="Aucun paquet à mettre à jour."
+    [repo.fetch_conf]="Récupération de la configuration du service Spark apt-fast.conf"
+    [repo.inrelease_verified]="Signature InRelease vérifiée"
+    [repo.release_verified]="Signature Release vérifiée"
+    [repo.download_index]="Téléchargement de l'index %s"
+    [repo.index_verified]="SHA256 de l'index vérifié"
+    [repo.index_updated]="Index du dépôt mis à jour (%s paquets)"
+    [repo.fetching]="Aucun index local ; récupération..."
+)

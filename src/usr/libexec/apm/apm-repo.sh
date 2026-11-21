@@ -83,7 +83,7 @@ _apm_aptss_conf_parse() {
 apm_aptss_conf_load() { # [--refresh]
     local refresh="${1:-}"
     if [ "$refresh" = "--refresh" ] || [ ! -s "$APM_APTFAST_CONF" ]; then
-        log.info "$(apm_t "获取星火服务配置 apt-fast.conf" "Fetching Spark service config apt-fast.conf")"
+        log.info "$(apm_tk repo.fetch_conf "获取星火服务配置 apt-fast.conf" "Fetching Spark service config apt-fast.conf")"
         apm_http_get "$APM_SPARK_URL/apt-fast.conf" "$APM_APTFAST_CONF" ||
             log.warn "$(apm_t "无法获取 apt-fast.conf，使用默认下载参数（或沿用旧配置）" "Failed to fetch apt-fast.conf; using defaults (or existing config)")"
     fi
@@ -236,7 +236,7 @@ apm_repo_update() {
             rm -rf -- "$tmp"
             die "$(apm_t "仓库签名校验失败: $repo/InRelease" "Repository signature verification failed: $repo/InRelease")"
         fi
-        log.info "$(apm_t "InRelease 签名校验通过" "InRelease signature verified")"
+        log.info "$(apm_tk repo.inrelease_verified "InRelease 签名校验通过" "InRelease signature verified")"
     else
         log.warn "$(apm_t "无法获取 InRelease，尝试 Release + Release.gpg" "Failed to fetch InRelease; trying Release + Release.gpg")"
         apm_http_get "$repo/Release" "$tmp/Release" ||
@@ -252,7 +252,7 @@ apm_repo_update() {
             die "$(apm_t "仓库签名校验失败: $repo/Release" "Repository signature verification failed: $repo/Release")"
         fi
         release_file="$tmp/Release"
-        log.info "$(apm_t "Release 签名校验通过" "Release signature verified")"
+        log.info "$(apm_tk repo.release_verified "Release 签名校验通过" "Release signature verified")"
     fi
 
     # 选择索引文件：优先 Packages.xz，其次 Packages.gz / Packages
@@ -274,7 +274,7 @@ apm_repo_update() {
         die "$(apm_t "仓库元数据中没有 Packages 索引" "Repository metadata has no Packages index")"
     }
 
-    log.info "$(apm_t "下载索引 $index_name" "Downloading index $index_name")"
+    log.info "$(printf "$(apm_tk repo.download_index "下载索引 %s" "Downloading index %s")" "$index_name")"
     apm_http_get "$repo/$index_name" "$tmp/$index_name" ||
         die "$(apm_t "下载索引失败: $repo/$index_name" "Failed to download index: $repo/$index_name")"
 
@@ -285,7 +285,7 @@ apm_repo_update() {
         rm -rf -- "$tmp"
         die "$(apm_t "索引 SHA256 校验失败: $index_name" "Index SHA256 verification failed: $index_name")"
     fi
-    log.info "$(apm_t "索引 SHA256 校验通过" "Index SHA256 verified")"
+    log.info "$(apm_tk repo.index_verified "索引 SHA256 校验通过" "Index SHA256 verified")"
     if [ -n "$index_size" ]; then
         local actual_size
         actual_size="$(wc -c < "$tmp/$index_name" | tr -d ' ')"
@@ -316,13 +316,13 @@ apm_repo_update() {
 
     trap - EXIT
     rm -rf -- "$tmp"
-    log.info "$(apm_t "仓库索引已更新（$count 个软件包）" "Repository index updated ($count packages)")"
+    log.info "$(printf "$(apm_tk repo.index_updated "仓库索引已更新（%s 个软件包）" "Repository index updated (%s packages)")" "$count")"
 }
 
 # 索引不存在时自动拉取一次（类似 aptss 首次使用自动 update）
 apm_repo_ensure() {
     if [ ! -s "$APM_PACKAGES_FILE" ]; then
-        log.info "$(apm_t "本地没有仓库索引，正在获取..." "No local repository index; fetching...")"
+        log.info "$(apm_tk repo.fetching "本地没有仓库索引，正在获取..." "No local repository index; fetching...")"
         apm_repo_update
     fi
 }

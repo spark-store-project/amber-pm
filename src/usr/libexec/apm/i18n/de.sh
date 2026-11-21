@@ -1,0 +1,23 @@
+# de translations for APM
+declare -gA APM_T_DE=(
+    [remove.not_installed]="Nicht installiert: %s"
+    [remove.refuse]="Die folgenden installierten Pakete hängen von %s ab; Entfernen abgelehnt:"
+    [remove.force_hint]="Entfernen Sie sie zuerst oder verwenden Sie --force"
+    [remove.removing]="Entferne %s"
+    [remove.header]="Die folgenden Pakete werden ENTFERNT:"
+    [remove.count]="%s Paket(e) werden entfernt."
+    [remove.prompt]="Fortfahren? [J/n] "
+    [remove.aborted]="Abgebrochen."
+    [install.installing]="Installiere %s %s"
+    [install.reinstalling]="%s: installiere %s erneut"
+    [install.latest]="%s ist bereits die neueste Version (%s), übersprungen"
+    [install.upgrading]="%s: aktualisiere %s -> %s"
+    [install.no_upgrades]="Keine Pakete müssen aktualisiert werden."
+    [repo.fetch_conf]="Rufe Spark-Dienstkonfiguration apt-fast.conf ab"
+    [repo.inrelease_verified]="InRelease-Signatur verifiziert"
+    [repo.release_verified]="Release-Signatur verifiziert"
+    [repo.download_index]="Lade Index %s herunter"
+    [repo.index_verified]="Index-SHA256 verifiziert"
+    [repo.index_updated]="Repository-Index aktualisiert (%s Pakete)"
+    [repo.fetching]="Kein lokaler Repository-Index; wird abgerufen..."
+)

@@ -54,22 +54,62 @@ APM_MAXNUM=5
 APM_MAXCONPERSRV=1
 
 # ---------------------------------------------------------------------------
-# 多语言：APM_LANG=auto|zh|en
-# auto 根据 LC_ALL / LC_MESSAGES / LANG 判断；非中文环境默认英文。
+# 多语言
+#   APM_LANG=auto|zh|en|de|fr|es|ru|ja|ko|pt|it
+#   auto 依次参考 LANGUAGE（GNU 优先级列表，冒号分隔）、
+#   LC_ALL、LC_MESSAGES、LANG；最后回退到英文。
+#
+# 当前实现：
+#   * 所有消息在调用点都同时给出中文/英文，apm_t 负责二选一；
+#   * 其他语言的静态/常用消息用 apm_tk(key, zh, en) 查 i18n/<lang>.sh 目录，
+#     未翻译的 key 回退英文。
 # ---------------------------------------------------------------------------
+_APM_I18N_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/i18n"
+
+_apm_pick_lang() {
+    case "$1" in
+        zh* | cn*) printf 'zh' ;;
+        en*) printf 'en' ;;
+        de*) printf 'de' ;;
+        fr*) printf 'fr' ;;
+        es*) printf 'es' ;;
+        ru*) printf 'ru' ;;
+        ja*) printf 'ja' ;;
+        ko*) printf 'ko' ;;
+        pt*) printf 'pt' ;;
+        it*) printf 'it' ;;
+        *) return 1 ;;
+    esac
+}
+
 APM_LANG="${APM_LANG:-auto}"
 if [ "$APM_LANG" = "auto" ]; then
-    case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in
-        zh*) APM_LANG=zh ;;
-        *) APM_LANG=en ;;
-    esac
+    _apm_lang=""
+    if [ -n "${LANGUAGE:-}" ]; then
+        IFS=':' read -ra _apm_langs <<< "$LANGUAGE"
+        for _apm_one in "${_apm_langs[@]}"; do
+            case "$_apm_one" in
+                "" | C | POSIX) continue ;;
+            esac
+            if _apm_lang="$(_apm_pick_lang "$_apm_one")"; then
+                break
+            fi
+            _apm_lang=""
+        done
+    fi
+    if [ -z "$_apm_lang" ]; then
+        _apm_lang="$(_apm_pick_lang "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}")" || _apm_lang=""
+    fi
+    APM_LANG="${_apm_lang:-en}"
+    unset _apm_lang _apm_langs _apm_one
+else
+    APM_LANG="$(_apm_pick_lang "$APM_LANG")" || APM_LANG=en
 fi
-case "$APM_LANG" in
-    zh*) APM_LANG=zh ;;
-    *) APM_LANG=en ;;
-esac
+export APM_LANG
+
 apm_is_zh() { [ "$APM_LANG" = "zh" ]; }
-# apm_t "中文" "English"
+
+# apm_t "中文" "English" —— 中文/英文内联消息
 apm_t() {
     if [ "$APM_LANG" = "zh" ]; then
         printf '%s' "$1"
@@ -77,7 +117,51 @@ apm_t() {
         printf '%s' "$2"
     fi
 }
-export APM_LANG
+
+# 其他语言的消息目录，按需加载
+_APM_I18N_LOADED=""
+_apm_i18n_ensure() {
+    case "$APM_LANG" in
+        de | fr | es | ru | ja | ko | pt | it) ;;
+        *) return 1 ;;
+    esac
+    [ "$_APM_I18N_LOADED" = "$APM_LANG" ] && return 0
+    if [ -r "$_APM_I18N_DIR/$APM_LANG.sh" ]; then
+        # shellcheck disable=SC1090
+        . "$_APM_I18N_DIR/$APM_LANG.sh"
+    fi
+    _APM_I18N_LOADED="$APM_LANG"
+    return 0
+}
+
+# apm_tk key "中文" "English" —— 支持其他语言目录；未翻译时回退英文
+apm_tk() {
+    local key="$1" zh="$2" en="$3"
+    if [ "$APM_LANG" = "zh" ]; then
+        printf '%s' "$zh"
+        return 0
+    fi
+    if [ "$APM_LANG" = "en" ]; then
+        printf '%s' "$en"
+        return 0
+    fi
+    _apm_i18n_ensure || {
+        printf '%s' "$en"
+        return 0
+    }
+    case "$APM_LANG" in
+        de) printf '%s' "${APM_T_DE[$key]:-$en}" ;;
+        fr) printf '%s' "${APM_T_FR[$key]:-$en}" ;;
+        es) printf '%s' "${APM_T_ES[$key]:-$en}" ;;
+        ru) printf '%s' "${APM_T_RU[$key]:-$en}" ;;
+        ja) printf '%s' "${APM_T_JA[$key]:-$en}" ;;
+        ko) printf '%s' "${APM_T_KO[$key]:-$en}" ;;
+        pt) printf '%s' "${APM_T_PT[$key]:-$en}" ;;
+        it) printf '%s' "${APM_T_IT[$key]:-$en}" ;;
+        *) printf '%s' "$en" ;;
+    esac
+}
+
 
 # 日志：输出到 stderr（stdout 留给数据），非终端时去掉颜色
 _APM_LOG_COLOR=0

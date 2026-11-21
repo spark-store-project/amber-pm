@@ -1,0 +1,23 @@
+# ja translations for APM
+declare -gA APM_T_JA=(
+    [remove.not_installed]="未インストール: %s"
+    [remove.refuse]="以下のインストール済みパッケージが %s に依存しているため、削除を中止しました："
+    [remove.force_hint]="先にそれらを削除するか、--force を使用してください"
+    [remove.removing]="%s を削除しています"
+    [remove.header]="以下のパッケージが削除されます："
+    [remove.count]="%s 個のパッケージが削除されます。"
+    [remove.prompt]="続行しますか？[Y/n] "
+    [remove.aborted]="中止しました。"
+    [install.installing]="%s %s をインストールしています"
+    [install.reinstalling]="%s: %s を再インストールしています"
+    [install.latest]="%s は既に最新バージョン (%s) です。スキップします"
+    [install.upgrading]="%s: %s -> %s にアップグレードしています"
+    [install.no_upgrades]="アップグレードが必要なパッケージはありません。"
+    [repo.fetch_conf]="Spark サービスの設定 apt-fast.conf を取得しています"
+    [repo.inrelease_verified]="InRelease の署名を検証しました"
+    [repo.release_verified]="Release の署名を検証しました"
+    [repo.download_index]="インデックス %s をダウンロードしています"
+    [repo.index_verified]="インデックスの SHA256 を検証しました"
+    [repo.index_updated]="リポジトリインデックスを更新しました（%s パッケージ）"
+    [repo.fetching]="ローカルインデックスがありません。取得しています..."
+)
