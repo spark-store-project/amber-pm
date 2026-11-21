@@ -1,80 +1,138 @@
 #compdef apm
-# apm(8) zsh 补全（2.0.0 起为原生包管理）
+# apm(8) zsh 补全（2.0.0+ 原生包管理）
 
+# 已安装的软件包（跳过 apm 自身与状态目录）
 _apm_installed_pkgs() {
     local d base
-    for d in /var/lib/apm/*/; do
-        [ -d "$d" ] || continue
+    local base_dir="${APM_STATE_DIR:-/var/lib/apm}"
+    local -a pkgs
+    for d in "$base_dir"/*/; do
+        [[ -d $d ]] || continue
         base=${d%/}
         base=${base##*/}
-        case "$base" in
+        case $base in
             apm | apm-conf | db | lists | cache) continue ;;
         esac
-        [ -f "$d/info" ] || [ -d "$d/files" ] || continue
-        REPLY+=("$base")
+        [[ -f $d/info || -d $d/files ]] || continue
+        pkgs+=("$base")
     done
+    print -rl -- "${pkgs[@]}"
 }
 
-_apm() {
-    local -a commands
-    commands=(
-        'install:安装软件包（支持本地 .deb）'
-        'reinstall:重新安装软件包'
-        'remove:卸载软件包'
-        'purge:卸载软件包（无配置文件时与 remove 相同）'
-        'autoremove:自动卸载不再需要的依赖'
-        'autopurge:自动卸载不再需要的依赖'
-        'update:更新仓库索引'
-        'upgrade:升级所有可升级软件包'
-        'full-upgrade:升级所有可升级软件包'
-        'hold:锁定软件包版本'
-        'unhold:解锁软件包版本'
-        'list:查看已安装软件包'
-        'search:搜索软件包'
-        'show:展示包信息'
-        'policy:查看已安装/候选版本'
-        'depends:查看依赖'
-        'rdepends:查看反向依赖'
-        'download:下载软件包到当前目录'
-        'clean:清理下载缓存'
-        'migrate:从旧版管理环境迁移'
-        'debug:打印主机与 APM 调试信息'
-        'launch:启动软件包'
-        'run:运行软件包内的命令'
-        'sandbox-run:主目录沙箱化运行'
-        'bwrap-run:使用 bwrap 运行'
-        'ssinstall:校验星火商店来源后安装'
-        'ssaudit:只校验星火商店来源'
-        'amber:彩蛋功能'
-        'xmp360:彩蛋功能'
-        'bronya:彩蛋功能'
-        'help:显示帮助信息'
-    )
-
-    if (( CURRENT == 2 )); then
-        _describe 'command' commands
-        return
+# 仓库里的全部软件包名：优先直接读索引
+_apm_all_pkgs() {
+    local base_dir="${APM_STATE_DIR:-/var/lib/apm}"
+    local idx=""
+    for idx in "$base_dir/apm-conf/lists/Packages" "$base_dir/lists/Packages"; do
+        [[ -s $idx ]] && break
+    done
+    if [[ -s $idx ]]; then
+        awk '/^Package: / { print substr($0, 10) }' "$idx" | sort -u
+    else
+        _apm_installed_pkgs
     fi
+}
 
-    local cmd=${words[2]}
-    local -a pkgs
-    case "$cmd" in
-        install|reinstall|show|policy|depends|rdepends|download|ssinstall|ssaudit)
-            pkgs=(${(f)"$(apm list --all 2>/dev/null | awk '{print $1}' | cut -d'/' -f1)"})
-            _describe 'package' pkgs
-            _files -g '*.deb'
+local -a commands
+commands=(
+    'install:安装软件包（支持本地 .deb）'
+    'reinstall:重新安装软件包'
+    'remove:卸载软件包'
+    'purge:卸载软件包'
+    'autoremove:自动卸载不再需要的依赖'
+    'autopurge:自动卸载不再需要的依赖'
+    'update:更新仓库索引'
+    'upgrade:升级所有可升级软件包'
+    'full-upgrade:升级所有可升级软件包'
+    'hold:锁定软件包版本'
+    'unhold:解锁软件包版本'
+    'list:列出软件包'
+    'search:搜索软件包'
+    'show:展示包信息'
+    'policy:查看已安装/候选版本'
+    'depends:查看依赖'
+    'rdepends:查看反向依赖'
+    'download:下载软件包到当前目录'
+    'clean:清理下载缓存'
+    'migrate:从旧版管理环境迁移'
+    'debug:打印主机与 APM 调试信息'
+    'launch:启动软件包'
+    'run:运行软件包内的命令'
+    'sandbox-run:主目录沙箱化运行'
+    'bwrap-run:使用 bwrap 运行'
+    'ssinstall:校验星火商店来源后安装'
+    'ssaudit:只校验星火商店来源'
+    'amber:彩蛋功能'
+    'xmp360:彩蛋功能'
+    'bronya:彩蛋功能'
+    'help:显示帮助信息'
+)
+
+if (( CURRENT == 2 )); then
+    _describe 'command' commands
+    return
+fi
+
+local cmd=${words[1]} cur=${words[CURRENT]}
+local -a pkgs
+
+# 选项补全
+if [[ $cur == -* ]]; then
+    case $cmd in
+        install | reinstall)
+            compadd -- --force-outside-paths --reinstall -y --yes
             ;;
-        remove|purge|autoremove|autopurge|hold|unhold|launch|run|sandbox-run|bwrap-run)
-            _apm_installed_pkgs
-            _describe 'installed package' REPLY
+        remove | purge | autoremove | autopurge)
+            compadd -- --force -y --yes
+            ;;
+        upgrade | full-upgrade)
+            compadd -- -y --yes
             ;;
         list)
-            _values 'option' '--installed' '--all' '--upgradable'
+            compadd -- --installed --upgradable --manual-installed --all-versions --all -a
             ;;
-        *)
-            _files
+        migrate)
+            compadd -- --dry-run
             ;;
     esac
-}
+    return
+fi
 
-_apm "$@"
+case $cmd in
+    install | reinstall | ssinstall | ssaudit)
+        if [[ $cur == ./* || $cur == /* || $cur == "~/"* || $cur == *.deb ]]; then
+            _files -g '*.deb'
+        else
+            pkgs=("${(@f)$(_apm_all_pkgs)}")
+            (( ${#pkgs} )) && _describe 'package' pkgs
+            _files -g '*.deb'
+        fi
+        ;;
+    show | policy | depends | rdepends | download)
+        pkgs=("${(@f)$(_apm_all_pkgs)}")
+        (( ${#pkgs} )) && _describe 'package' pkgs
+        ;;
+    remove | purge | autoremove | autopurge | hold | unhold)
+        pkgs=("${(@f)$(_apm_installed_pkgs)}")
+        (( ${#pkgs} )) && _describe 'installed package' pkgs
+        ;;
+    launch)
+        if (( CURRENT == 3 )); then
+            pkgs=("${(@f)$(_apm_installed_pkgs)}")
+            (( ${#pkgs} )) && _describe 'installed package' pkgs
+        fi
+        ;;
+    run | sandbox-run | bwrap-run)
+        if (( CURRENT == 3 )); then
+            pkgs=("${(@f)$(_apm_installed_pkgs)}")
+            (( ${#pkgs} )) && _describe 'installed package' pkgs
+        else
+            _files
+        fi
+        ;;
+    search | list | update | upgrade | full-upgrade | clean | migrate | debug | help | amber | xmp360 | bronya)
+        ;;
+    *)
+        _files
+        ;;
+esac

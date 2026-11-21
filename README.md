@@ -34,7 +34,7 @@ APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上
 
 ## 使用方法
 ```
-APM - Amber Package Manager 2.0.0~alpha3
+APM - Amber Package Manager 2.0.0~alpha4
 
 Usage:
   apm [COMMAND] [OPTIONS] [PACKAGES...]
@@ -167,6 +167,9 @@ bash tests/run-quoting-test.sh
 
 # 原生包管理（本地假仓库：安装/升级/卸载/addons/路径安全/迁移/ssinstall 等）
 bash tests/native-pkg-test.sh
+
+# shell 补全（需要 bash-completion；没有则自动跳过）
+bash tests/completion-test.sh
 ```
 
 ## APM 构建 Tips

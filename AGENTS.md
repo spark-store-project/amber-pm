@@ -188,5 +188,6 @@ apm policy <包>                      # 已安装/候选版本
   `apm-lib.sh`（基础）、`apm-repo.sh`（仓库/aptss 兼容）、`apm-deb.sh`（deb 解析与
   路径安全）、`apm-db.sh`（数据库）、`apm-install.sh`（安装/卸载/升级）、
   `apm-ss.sh`（ssinstall/ssaudit）、`apm-migrate.sh`（旧版迁移）。
-- 回归测试：`tests/run-quoting-test.sh`（运行/参数/overlay）与
-  `tests/native-pkg-test.sh`（原生包管理，本地假仓库，无需 root）。
+- 回归测试：`tests/run-quoting-test.sh`（运行/参数/overlay）、
+  `tests/native-pkg-test.sh`（原生包管理，本地假仓库，无需 root）与
+  `tests/completion-test.sh`（bash 补全，需要 bash-completion）。

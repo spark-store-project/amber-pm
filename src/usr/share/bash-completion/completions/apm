@@ -1,9 +1,12 @@
-# apm(8) bash 补全（2.0.0 起为原生包管理）
+# shellcheck disable=SC2034,SC2207
+# apm(8) bash 补全（2.0.0+ 原生包管理）
 # 安装位置：/usr/share/bash-completion/completions/apm
 
+# 已安装的软件包（跳过 apm 自身与状态目录）
 _apm_installed_pkgs() {
+    local base_dir="${APM_STATE_DIR:-/var/lib/apm}"
     local d base
-    for d in /var/lib/apm/*/; do
+    for d in "$base_dir"/*/; do
         [ -d "$d" ] || continue
         base="$(basename -- "$d")"
         case "$base" in
@@ -14,8 +17,19 @@ _apm_installed_pkgs() {
     done
 }
 
+# 仓库中的全部软件包名：直接读索引，避免每次补全都调用 apm
 _apm_all_pkgs() {
-    apm list --all 2>/dev/null | awk '{print $1}' | cut -d'/' -f1
+    local base_dir="${APM_STATE_DIR:-/var/lib/apm}"
+    local idx=""
+    for idx in "$base_dir/apm-conf/lists/Packages" "$base_dir/lists/Packages"; do
+        [ -s "$idx" ] && break
+    done
+    if [ -s "$idx" ]; then
+        awk '/^Package: / { print substr($0, 10) }' "$idx" | sort -u
+        return 0
+    fi
+    # 没有索引时退回已安装列表
+    _apm_installed_pkgs
 }
 
 _apm()
@@ -25,37 +39,71 @@ _apm()
 
     local commands="install reinstall remove purge autoremove autopurge update upgrade full-upgrade hold unhold list search show policy depends rdepends download clean migrate debug launch run sandbox-run bwrap-run ssinstall ssaudit amber xmp360 bronya help"
 
-    if [ "$cword" -eq 1 ]; then
+    if [ "$cword" -eq 0 ] || [ "$cword" -eq 1 ]; then
         COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
         return 0
     fi
 
     local cmd="${words[1]}"
-    case "$cmd" in
-        install|reinstall)
-            if [[ "$cur" == -* ]]; then
+
+    # 选项补全
+    if [[ "$cur" == -* ]]; then
+        case "$cmd" in
+            install | reinstall)
                 COMPREPLY=( $(compgen -W "--force-outside-paths --reinstall -y --yes" -- "$cur") )
-                return 0
-            fi
-            COMPREPLY=( $(compgen -W "$(_apm_all_pkgs)" -- "$cur") )
-            if [[ "$cur" == ./* || "$cur" == /* ]]; then
+                ;;
+            remove | purge | autoremove | autopurge)
+                COMPREPLY=( $(compgen -W "--force -y --yes" -- "$cur") )
+                ;;
+            upgrade | full-upgrade)
+                COMPREPLY=( $(compgen -W "-y --yes" -- "$cur") )
+                ;;
+            list)
+                COMPREPLY=( $(compgen -W "--installed --upgradable --manual-installed --all-versions --all -a" -- "$cur") )
+                ;;
+            migrate)
+                COMPREPLY=( $(compgen -W "--dry-run" -- "$cur") )
+                ;;
+        esac
+        return 0
+    fi
+
+    case "$cmd" in
+        install | reinstall)
+            if [[ "$cur" == ./* || "$cur" == /* || "$cur" == "~/"* || "$cur" == *.deb ]]; then
+                _filedir deb
+            else
+                COMPREPLY=( $(compgen -W "$(_apm_all_pkgs)" -- "$cur") )
                 _filedir deb
             fi
             ;;
-        remove|purge|autoremove|autopurge|hold|unhold|launch|run|sandbox-run|bwrap-run)
+        remove | purge | autoremove | autopurge | hold | unhold)
             COMPREPLY=( $(compgen -W "$(_apm_installed_pkgs)" -- "$cur") )
             ;;
-        show|policy|depends|rdepends|download|ssinstall|ssaudit)
+        show | policy | depends | rdepends | download)
             COMPREPLY=( $(compgen -W "$(_apm_all_pkgs)" -- "$cur") )
-            if [[ "$cur" == ./* || "$cur" == /* ]]; then
+            ;;
+        ssinstall | ssaudit)
+            if [[ "$cur" == ./* || "$cur" == /* || "$cur" == "~/"* || "$cur" == *.deb ]]; then
+                _filedir deb
+            else
+                COMPREPLY=( $(compgen -W "$(_apm_all_pkgs)" -- "$cur") )
                 _filedir deb
             fi
             ;;
-        list)
-            COMPREPLY=( $(compgen -W "--installed --all --upgradable" -- "$cur") )
+        launch)
+            if [ "$cword" -eq 2 ]; then
+                COMPREPLY=( $(compgen -W "$(_apm_installed_pkgs)" -- "$cur") )
+            fi
             ;;
-        migrate|update|upgrade|clean|debug)
-            COMPREPLY=( $(compgen -W "--dry-run" -- "$cur") )
+        run | sandbox-run | bwrap-run)
+            if [ "$cword" -eq 2 ]; then
+                COMPREPLY=( $(compgen -W "$(_apm_installed_pkgs)" -- "$cur") )
+            else
+                _filedir
+            fi
+            ;;
+        *)
             ;;
     esac
     return 0
