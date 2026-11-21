@@ -34,7 +34,7 @@ APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上
 
 ## 使用方法
 ```
-APM - Amber Package Manager 2.0.0~alpha4
+APM - Amber Package Manager 2.0.0~alpha5
 
 Usage:
   apm [COMMAND] [OPTIONS] [PACKAGES...]
@@ -77,7 +77,8 @@ Commands:
   deb SHA256 校验），并使用和 aptss 相同的服务配置与多连接下载（aria2c + `MIRRORS` 多镜像并行，缺失 aria2c 时退回 curl）。
 - 支持 `--force-outside-paths`：软件包默认只允许写入自己的目录；如果要写入其它位置，
   需要显式确认（高风险）。
-- 卸载会清理 `/var/lib/apm/<包名>` 与所有用户的 `~/.apm/<包名>`。
+- 卸载单个应用会清理 `/var/lib/apm/<包名>` 与所有用户的 `~/.apm/<包名>`；
+  卸载 APM 本身会一并删除 `/var/lib/apm` 下的全部应用和 `~/.apm`。
 - `apm debug` 只输出主机与 APM 的调试信息，不再进入交互环境。
 - 旧版管理环境（`/var/lib/apm/apm/files/ace-env`）中的软件包可用 `sudo apm migrate` 迁移。
 - 仓库与 .deb 格式未变：Debian 系宿主上的 `apt`/`aptss` 仍可直接安装 APM 包，
@@ -156,6 +157,9 @@ NixOS 本地构建、安装、module 使用以及 NUR/nixpkgs 打包复用说明
 > 1.1.5+ 版本支持了覆盖 base 功能，相见 https://gitee.com/amber-ce/amber-pm/blob/master/Packaging-demo/README.md#info_layer_override-%E6%96%87%E4%BB%B6
 >
 > 1.3.0+ 版本支持了 addons 层功能，相见 https://gitee.com/amber-ce/amber-pm/blob/master/Packaging-demo/README.md#info_layer_addons--info_layer_addonsdaddons-%E5%B1%82
+
+无特权（用户级）包管理的可行性调研见
+[docs/unprivileged-pkg-research.md](docs/unprivileged-pkg-research.md)。
 
 ## 测试
 
