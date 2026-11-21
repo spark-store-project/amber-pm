@@ -36,7 +36,7 @@ APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上
 
 ## 使用方法
 ```
-APM - Amber Package Manager 2.0.0~beta5
+APM - Amber Package Manager 2.0.0~beta6
 
 Usage:
   apm [COMMAND] [OPTIONS] [PACKAGES...]
@@ -97,10 +97,13 @@ Commands:
 - 卸载单个应用会清理 `/var/lib/apm/<包名>` 与所有用户的 `~/.apm/<包名>`；
   卸载 APM 本身会一并删除 `/var/lib/apm` 下的全部应用和 `~/.apm`。
 - 输出语言跟随 `LANGUAGE`（GNU 优先级列表）以及 `LC_ALL/LC_MESSAGES/LANG`，
-  支持 zh / en / de / fr / es / ru / ja / ko / pt / it；也可用
-  `APM_LANG=zh|en|ja|...` 强制指定。
-- 中文/英文覆盖全部核心消息；其它语言目前覆盖卸载、安装、更新等核心消息，
-  未翻译的条目回退英文。
+  支持 `zh_CN`（简体）/ `zh_TW`（繁体，含 zh_HK/zh_Hant）/ `en` / `de` / `fr` /
+  `es` / `ru` / `ja` / `ko` / `pt` / `it`；也可用
+  `APM_LANG=zh_CN|zh_TW|en|ja|...` 强制指定。
+- zh_CN / zh_TW / en 覆盖全部核心消息（zh_TW 由简体消息经
+  `i18n/zh_TW.sed` 转繁体）；其它语言目前覆盖卸载、安装、更新等核心消息，
+  未翻译的条目回退英文。新增语言只需加 `i18n/<lang>.sh` 并在
+  `apm_tk` 的 case 里登记。
 - `apm debug` 只输出主机与 APM 的调试信息，不再进入交互环境。
 - 旧版管理环境（`/var/lib/apm/apm/files/ace-env`）中的软件包可用 `sudo apm migrate` 迁移。
 - 仓库与 .deb 格式未变：Debian 系宿主上的 `apt`/`aptss` 仍可直接安装 APM 包，

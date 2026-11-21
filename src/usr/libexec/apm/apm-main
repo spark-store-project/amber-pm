@@ -23,7 +23,7 @@ done
 # 帮助信息函数
 show_help() {
     if apm_is_zh; then
-        cat <<EOF
+        apm_print_zh "$(cat <<EOF
 APM - Amber Package Manager ${VERSION}
 
 Usage:
@@ -67,6 +67,8 @@ Commands:
 
                                             本 APM 具有兔兔伯爵，女武神装甲和超级大运之力。
 EOF
+)"
+        printf '\n'
     else
         cat <<EOF
 APM - Amber Package Manager ${VERSION}
@@ -116,7 +118,7 @@ EOF
 show_help_all() {
     show_help
     if apm_is_zh; then
-        cat <<EOF
+        apm_print_zh "$(cat <<EOF
 
 说明:
   APM 的包管理已改为原生实现：直接从星火 APM 仓库（apt 兼容格式）获取索引，
@@ -133,6 +135,8 @@ show_help_all() {
 
   调试: APM_DEBUG=1 输出调试日志；APM_ROOT=<目录> 可把数据目录重定向到测试目录
 EOF
+)"
+        printf '\n'
     else
         cat <<EOF
 

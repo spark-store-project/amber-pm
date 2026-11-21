@@ -143,7 +143,7 @@ apm ssaudit <包名|deb路径>      # 只校验，不安装
 | 变量 | 作用 |
 |---|---|
 | `APM_DEBUG=1` | 输出调试日志 |
-| `APM_LANG` | 输出语言：`auto`（按 `LANGUAGE` → `LC_ALL/LC_MESSAGES/LANG`）、`zh`、`en`、`de`、`fr`、`es`、`ru`、`ja`、`ko`、`pt`、`it` |
+| `APM_LANG` | 输出语言：`auto`（按 `LANGUAGE` → `LC_ALL/LC_MESSAGES/LANG`）、`zh_CN`、`zh_TW`、`en`、`de`、`fr`、`es`、`ru`、`ja`、`ko`、`pt`、`it` |
 | `APM_RUN_DEBUG=1` | 打印容器最终 bwrap argv |
 | `APM_ROOT=<目录>` | 把数据目录重定向到测试目录（不要求 root，用于测试） |
 | `APM_STATE_DIR` | 覆盖包数据目录（默认 `$APM_ROOT/var/lib/apm`） |

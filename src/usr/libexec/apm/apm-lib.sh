@@ -55,20 +55,24 @@ APM_MAXCONPERSRV=1
 
 # ---------------------------------------------------------------------------
 # 多语言
-#   APM_LANG=auto|zh|en|de|fr|es|ru|ja|ko|pt|it
+#   APM_LANG=auto|zh_CN|zh_TW|en|de|fr|es|ru|ja|ko|pt|it
 #   auto 依次参考 LANGUAGE（GNU 优先级列表，冒号分隔）、
 #   LC_ALL、LC_MESSAGES、LANG；最后回退到英文。
+#   zh_CN = 简体，zh_TW = 繁体（含 zh_HK/zh_Hant）。
 #
-# 当前实现：
-#   * 所有消息在调用点都同时给出中文/英文，apm_t 负责二选一；
-#   * 其他语言的静态/常用消息用 apm_tk(key, zh, en) 查 i18n/<lang>.sh 目录，
-#     未翻译的 key 回退英文。
+# 消息来源（不是两套并行翻译）：
+#   * apm_t(zh, en)：默认消息，覆盖全部 zh_CN / en；
+#     zh_TW 把 zh 文本经 zh_TW.sed 转成繁体；
+#   * apm_tk(key, zh, en)：在默认消息之上再查 i18n/<lang>.sh，
+#     供 de/fr/es/ru/ja/ko/pt/it 等增量翻译使用；
+#     某个 key 没有翻译时回退英文。
 # ---------------------------------------------------------------------------
 _APM_I18N_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/i18n"
 
 _apm_pick_lang() {
     case "$1" in
-        zh* | cn*) printf 'zh' ;;
+        zh_TW* | zh_HK* | zh_Hant*) printf 'zh_TW' ;;
+        zh_CN* | zh_SG* | zh_Hans* | zh | cn*) printf 'zh_CN' ;;
         en*) printf 'en' ;;
         de*) printf 'de' ;;
         fr*) printf 'fr' ;;
@@ -107,15 +111,36 @@ else
 fi
 export APM_LANG
 
-apm_is_zh() { [ "$APM_LANG" = "zh" ]; }
+apm_is_zh() {
+    [ "$APM_LANG" = "zh_CN" ] || [ "$APM_LANG" = "zh_TW" ]
+}
+
+# 简体 -> 繁体（OpenCC 单字表 + APM 常用术语）
+apm_to_traditional() {
+    local s="$1"
+    if [ -r "$_APM_I18N_DIR/zh_TW.sed" ] && command -v sed >/dev/null 2>&1; then
+        printf '%s' "$s" | sed -f "$_APM_I18N_DIR/zh_TW.sed"
+    else
+        printf '%s' "$s"
+    fi
+}
+
+# 输出中文：zh_TW 自动转繁体
+apm_print_zh() {
+    if [ "$APM_LANG" = "zh_TW" ]; then
+        apm_to_traditional "$1"
+    else
+        printf '%s' "$1"
+    fi
+}
 
 # apm_t "中文" "English" —— 中文/英文内联消息
 apm_t() {
-    if [ "$APM_LANG" = "zh" ]; then
-        printf '%s' "$1"
-    else
-        printf '%s' "$2"
-    fi
+    case "$APM_LANG" in
+        zh_CN) printf '%s' "$1" ;;
+        zh_TW) apm_to_traditional "$1" ;;
+        *) printf '%s' "$2" ;;
+    esac
 }
 
 # 其他语言的消息目录，按需加载
@@ -137,8 +162,12 @@ _apm_i18n_ensure() {
 # apm_tk key "中文" "English" —— 支持其他语言目录；未翻译时回退英文
 apm_tk() {
     local key="$1" zh="$2" en="$3"
-    if [ "$APM_LANG" = "zh" ]; then
+    if [ "$APM_LANG" = "zh_CN" ]; then
         printf '%s' "$zh"
+        return 0
+    fi
+    if [ "$APM_LANG" = "zh_TW" ]; then
+        apm_to_traditional "$zh"
         return 0
     fi
     if [ "$APM_LANG" = "en" ]; then
