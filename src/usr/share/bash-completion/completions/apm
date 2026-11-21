@@ -84,12 +84,8 @@ _apm()
             COMPREPLY=( $(compgen -W "$(_apm_all_pkgs)" -- "$cur") )
             ;;
         ssinstall | ssaudit)
-            if [[ "$cur" == ./* || "$cur" == /* || "$cur" == "~/"* || "$cur" == *.deb ]]; then
-                _filedir deb
-            else
-                COMPREPLY=( $(compgen -W "$(_apm_all_pkgs)" -- "$cur") )
-                _filedir deb
-            fi
+            # 只接受本地 deb（不接受在线包名）
+            _filedir deb
             ;;
         launch)
             if [ "$cword" -eq 2 ]; then

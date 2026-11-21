@@ -60,8 +60,8 @@ commands=(
     'run:运行软件包内的命令'
     'sandbox-run:主目录沙箱化运行'
     'bwrap-run:使用 bwrap 运行'
-    'ssinstall:校验星火商店来源后安装'
-    'ssaudit:只校验星火商店来源'
+    'ssinstall:本地安装星火包（校验失败拒绝）'
+    'ssaudit:本地安装本地包（校验失败也继续）'
     'amber:彩蛋功能'
     'xmp360:彩蛋功能'
     'bronya:彩蛋功能'
@@ -99,7 +99,7 @@ if [[ $cur == -* ]]; then
 fi
 
 case $cmd in
-    install | reinstall | ssinstall | ssaudit)
+    install | reinstall)
         if [[ $cur == ./* || $cur == /* || $cur == "~/"* || $cur == *.deb ]]; then
             _files -g '*.deb'
         else
@@ -107,6 +107,10 @@ case $cmd in
             (( ${#pkgs} )) && _describe 'package' pkgs
             _files -g '*.deb'
         fi
+        ;;
+    ssinstall | ssaudit)
+        # 只接受本地 deb（不接受在线包名）
+        _files -g '*.deb'
         ;;
     show | policy | depends | rdepends | download)
         pkgs=("${(@f)$(_apm_all_pkgs)}")

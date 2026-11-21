@@ -5,12 +5,14 @@
 # 旧版 APM 把这两个命令转发给管理环境里的 spark-store 脚本，再由 apt/dpkg
 # 安装；现在没有管理环境了，因此按星火商店的语义原生实现：
 #
-#   apm ssinstall <包名|deb路径>
-#       按星火 APM 仓库校验后安装（等价于 apm install，但对本地 deb 强制做
-#       Size/SHA256 校验，避免安装来路不明的文件）
+#   apm ssinstall <本地deb路径>
+#       外部安装器的合规提权入口：只接受本地 .deb，按星火 APM 仓库校验
+#       Size/SHA256 后安装；校验失败拒绝。依赖允许从仓库补齐。
 #
-#   apm ssaudit <包名|deb路径>
-#       只做校验、不安装：确认包在星火仓库里且哈希一致。
+#   apm ssaudit <本地deb路径>
+#       本地安装本地 .deb；校验失败只警告并继续安装。依赖允许从仓库补齐。
+#
+#   两者都不接受在线包名；在线安装请用 apm install。
 # =============================================================================
 
 # 在仓库索引里按 deb 文件名找对应的 stanza
@@ -59,54 +61,57 @@ apm_ss_verify_deb() { # deb 路径
     return 0
 }
 
-apm_cmd_ssaudit() {
-    local -a targets=()
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            -*) die "$(apm_t "未知选项: $1" "Unknown option: $1")" ;;
-            *) targets+=("$1") ;;
-        esac
-        shift
-    done
-    [ ${#targets[@]} -gt 0 ] || die "$(apm_t "用法: apm ssaudit <包名|deb路径>" "Usage: apm ssaudit <package|deb path>")"
-
-    apm_state_init
-    apm_repo_ensure
-
-    local t result rc=0
-    for t in "${targets[@]}"; do
-        if [ -f "$t" ]; then
-            if result="$(apm_ss_verify_deb "$t")"; then
-                log.info "[校验通过] $(basename "$t") -> ${result#ok }"
-            else
-                log.error "[校验失败] $(basename "$t"): ${result#fail }"
-                rc=1
-            fi
-        else
-            if apm_repo_has_pkg "$t"; then
-                log.info "[校验通过] $t $(apm_repo_version "$t")（星火仓库: $(apm_repo_filename "$t")）"
-            else
-                log.error "$(apm_t "[校验失败] 仓库中不存在: $t" "[FAILED] Not found in repository: $t")"
-                rc=1
-            fi
-        fi
-    done
-    return "$rc"
+# 校验本地 deb；失败时先刷新一次仓库索引，再确认一次
+# 输出最终校验结果（ok ... / fail ...），返回值 0 表示通过
+_apm_ss_verify_with_refresh() { # deb
+    local deb="$1" result
+    if result="$(apm_ss_verify_deb "$deb")"; then
+        printf '%s\n' "$result"
+        return 0
+    fi
+    log.warn "$(apm_t "校验失败，正在刷新仓库索引后重试..." "Verification failed; refreshing the repository index and retrying...")"
+    # apm_repo_update 失败时会 die，用子 shell 隔离，避免直接退出 ssinstall/ssaudit
+    if ! ( apm_repo_update --refresh ) >/dev/null 2>&1; then
+        log.warn "$(apm_t "刷新仓库索引失败，使用现有索引继续判断" "Failed to refresh the repository index; using the existing index")"
+    fi
+    result="$(apm_ss_verify_deb "$deb")" || {
+        printf '%s\n' "$result"
+        return 1
+    }
+    printf '%s\n' "$result"
+    return 0
 }
 
-apm_cmd_ssinstall() {
+# 安装一个已通过/绕过校验的本地 deb（依赖可在线补齐）
+_apm_ss_install_local_deb() { # deb [force_outside]
+    local deb="$1" force_outside="${2:-0}"
+    local pkg deps mode
+    pkg="$(apm_deb_control_field "$deb" Package)"
+    deps="$(apm_deb_control_field "$deb" Depends)"
+    [ -n "$pkg" ] || {
+        log.error "$(apm_t "无法读取包名: $deb" "Cannot read package name: $deb")"
+        return 1
+    }
+    # 依赖允许从仓库补齐；这是本地安装与普通 install 的唯一共同点
+    apm_install_dep_string "$deps" 1 || return 1
+    mode="install"
+    apm_db_installed "$pkg" && mode="upgrade"
+    apm_install_deb "$deb" "$pkg" 0 "$mode" "$force_outside"
+}
+
+# ssaudit：本地安装本地包；校验失败只警告，继续安装
+apm_cmd_ssaudit() {
     local force_outside=0
     local -a targets=()
     while [ $# -gt 0 ]; do
         case "$1" in
             --force-outside-paths | --force) force_outside=1 ;;
-            --no-verify) APM_SS_NO_VERIFY=1 ;;
             -*) die "$(apm_t "未知选项: $1" "Unknown option: $1")" ;;
             *) targets+=("$1") ;;
         esac
         shift
     done
-    [ ${#targets[@]} -gt 0 ] || die "$(apm_t "用法: apm ssinstall <包名|deb路径>" "Usage: apm ssinstall <package|deb path>")"
+    [ ${#targets[@]} -gt 0 ] || die "$(apm_t "用法: apm ssaudit <本地deb路径>" "Usage: apm ssaudit <local deb path>")"
 
     apm_require_root
     apm_state_init
@@ -114,32 +119,53 @@ apm_cmd_ssinstall() {
 
     local t result
     for t in "${targets[@]}"; do
-        if [ -f "$t" ]; then
-            if [ "${APM_SS_NO_VERIFY:-0}" != "1" ]; then
-                result="$(apm_ss_verify_deb "$t")" || {
-                    log.error "$(apm_t "校验失败，已拒绝安装: ${result#fail }" "Verification failed; installation refused: ${result#fail }")"
-                    log.error "$(apm_t "如确认文件可信，可用 --no-verify 跳过校验" "If you trust the file, use --no-verify to skip verification")"
-                    return 1
-                }
-                log.info "已按星火仓库校验 $(basename "$t")（${result#ok }）"
-            fi
-            local pkg deps
-            pkg="$(apm_deb_control_field "$t" Package)"
-            deps="$(apm_deb_control_field "$t" Depends)"
-            [ -n "$pkg" ] || {
-                log.error "$(apm_t "无法读取包名: $t" "Cannot read package name: $t")"
-                return 1
-            }
-            apm_install_dep_string "$deps" 1 || return 1
-            local mode="install"
-            apm_db_installed "$pkg" && mode="upgrade"
-            apm_install_deb "$t" "$pkg" 0 "$mode" "$force_outside" || return 1
-        else
-            # 与普通安装一致，但保留 --force-outside-paths
-            local -a args=(-y)
-            [ "$force_outside" = "1" ] && args+=(--force-outside-paths)
-            apm_cmd_install "${args[@]}" "$t" || return 1
+        if [ ! -f "$t" ] || [ "${t##*.}" != "deb" ]; then
+            log.error "$(apm_t "ssaudit 只支持本地 .deb，不接受在线包名: $t" "ssaudit only supports a local .deb, not an online package name: $t")"
+            return 1
         fi
+        if result="$(_apm_ss_verify_with_refresh "$t")"; then
+            log.info "已按星火仓库校验 $(basename "$t")（${result#ok }）"
+        else
+            log.warn "$(apm_t "校验失败，继续安装: ${result#fail }" "Verification failed; installing anyway: ${result#fail }")"
+        fi
+        _apm_ss_install_local_deb "$t" "$force_outside" || return 1
+    done
+    apm_run_triggers
+    return 0
+}
+
+# ssinstall：外部安装器的合规提权入口；只接受本地 .deb，校验失败拒绝
+apm_cmd_ssinstall() {
+    local force_outside=0
+    local -a targets=()
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --force-outside-paths | --force) force_outside=1 ;;
+            -*) die "$(apm_t "未知选项: $1" "Unknown option: $1")" ;;
+            *) targets+=("$1") ;;
+        esac
+        shift
+    done
+    [ ${#targets[@]} -gt 0 ] || die "$(apm_t "用法: apm ssinstall <本地deb路径>" "Usage: apm ssinstall <local deb path>")"
+
+    apm_require_root
+    apm_state_init
+    apm_repo_ensure
+
+    local t result
+    for t in "${targets[@]}"; do
+        if [ ! -f "$t" ] || [ "${t##*.}" != "deb" ]; then
+            log.error "$(apm_t "ssinstall 只支持本地 .deb，不接受在线包名: $t" "ssinstall only supports a local .deb, not an online package name: $t")"
+            return 1
+        fi
+        if result="$(_apm_ss_verify_with_refresh "$t")"; then
+            log.info "已按星火仓库校验 $(basename "$t")（${result#ok }）"
+        else
+            log.error "$(apm_t "校验失败，已拒绝安装: ${result#fail }" "Verification failed; installation refused: ${result#fail }")"
+            log.error "$(apm_t "ssaudit 可在校验失败时继续安装（仅限本地）" "ssaudit can install despite verification failure (local only)")"
+            return 1
+        fi
+        _apm_ss_install_local_deb "$t" "$force_outside" || return 1
     done
     apm_run_triggers
     return 0

@@ -443,18 +443,42 @@ assert_eq "已安装列表为空" "Listing..." "$(run_apm list --installed)"
 run_apm install -y fake-app >/dev/null   # 重新装回
 mkdir -p "$WORK/verify"
 cp "$REPO/pool/fake-app_2.0_all.deb" "$WORK/verify/fake-app_2.0_all.deb"
-assert_contains "ssaudit 校验通过" "$(run_apm ssaudit "$WORK/verify/fake-app_2.0_all.deb")" "校验通过"
+
+# ssaudit：本地安装本地包，校验失败也继续
+out="$(run_apm ssaudit "$WORK/verify/fake-app_2.0_all.deb")"
+assert_contains "ssaudit 校验通过并安装" "$out" "已按星火仓库校验"
+assert_file "$(state)/fake-app/files/core/opt/fake/version.txt" "ssaudit 安装文件存在"
 cp "$REPO/pool/fake-app_2.0_all.deb" "$WORK/verify/fake-app_2.0_all_tampered.deb"
 printf 'x' >> "$WORK/verify/fake-app_2.0_all_tampered.deb"
-assert_contains "ssaudit 发现被篡改" "$(run_apm ssaudit "$WORK/verify/fake-app_2.0_all_tampered.deb")" "校验失败"
+out="$(run_apm ssaudit "$WORK/verify/fake-app_2.0_all_tampered.deb")"
+assert_contains "ssaudit 校验失败先刷新索引" "$out" "正在刷新仓库索引"
+assert_contains "ssaudit 校验失败仍继续安装" "$out" "校验失败，继续安装"
+assert_file "$(state)/fake-app/files/core/opt/fake/version.txt" "ssaudit 失败后仍安装"
+
+# ssaudit 不接受在线包名
+out="$(run_apm ssaudit fake-addon)"
+assert_contains "ssaudit 拒绝在线包名" "$out" "只支持本地 .deb"
+
+# ssinstall：本地安装，校验失败拒绝
 run_apm remove -y fake-app >/dev/null
+# 模拟旧索引：删掉 fake-app 的 stanza，ssinstall 应自动 update 后重试成功
+cp "$(state)/apm-conf/lists/Packages" "$WORK/Packages.full"
+awk 'BEGIN { RS=""; ORS="\n\n" } !($0 ~ /^Package: fake-app\n/) { print }' \
+    "$WORK/Packages.full" > "$(state)/apm-conf/lists/Packages"
 out="$(run_apm ssinstall "$REPO/pool/fake-app_2.0_all.deb")"
+assert_contains "ssinstall 校验失败先刷新索引" "$out" "正在刷新仓库索引"
 assert_contains "ssinstall 校验并安装" "$out" "已按星火仓库校验"
 assert_file "$(state)/fake-app/files/core/opt/fake/version.txt" "ssinstall 安装文件存在"
 out="$(run_apm ssinstall fake-addon)"
-assert_contains "ssinstall 不需要 -y 也能安装" "$out" "安装 fake-addon"
+assert_contains "ssinstall 拒绝在线包名" "$out" "只支持本地 .deb"
 assert_not_contains "ssinstall 不询问确认" "$out" "是否继续"
-run_apm remove -y fake-addon >/dev/null
+
+# ssinstall 校验失败拒绝
+run_apm remove -y fake-app >/dev/null
+out="$(run_apm ssinstall "$WORK/verify/fake-app_2.0_all_tampered.deb")"
+assert_contains "ssinstall 校验失败先刷新索引" "$out" "正在刷新仓库索引"
+assert_contains "ssinstall 校验失败拒绝安装" "$out" "校验失败，已拒绝安装"
+assert_no_file "$(state)/fake-app" "ssinstall 失败后未安装"
 
 # ===========================================================================
 # 10. download / clean / debug

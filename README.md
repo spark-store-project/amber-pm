@@ -36,7 +36,7 @@ APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上
 
 ## 使用方法
 ```
-APM - Amber Package Manager 2.0.0~beta9
+APM - Amber Package Manager 2.0.0~beta10
 
 Usage:
   apm [COMMAND] [OPTIONS] [PACKAGES...]
@@ -62,8 +62,8 @@ Commands:
   launch <package> [args...]  启动软件包（通过应用启动器）
   run <package> [EXEC_PATH] [args...]  运行指定软件包的可执行文件
   sandbox-run / bwrap-run <package> ...  沙箱化运行
-  ssinstall <包|deb>     校验星火商店来源后安装
-  ssaudit <包|deb>       只校验星火商店来源，不安装
+  ssinstall <本地deb>    本地安装星火包（校验失败拒绝；外部安装器提权入口）
+  ssaudit <本地deb>      本地安装本地包（校验失败也继续安装）
 
   amber / xmp360 / bronya  彩蛋功能
 

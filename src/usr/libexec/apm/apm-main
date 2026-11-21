@@ -51,8 +51,8 @@ Commands:
   run <package> [EXEC_PATH] [args...]  运行指定软件包的可执行文件（可指定容器内路径）
   sandbox-run <package> [EXEC_PATH] [args...] 运行指定软件包的可执行文件（主目录沙箱化）
   bwrap-run <package> [EXEC_PATH] [args...] 运行指定软件包的可执行文件（使用 bwrap）
-  ssinstall <包|deb>     校验星火商店来源后安装（兼容旧 ssinstall）
-  ssaudit <包|deb>       只校验星火商店来源，不安装
+  ssinstall <本地deb>    本地安装星火包（校验失败拒绝；外部安装器提权入口）
+  ssaudit <本地deb>      本地安装本地包（校验失败也继续安装）
 
   install 选项:
     --force-outside-paths  允许包写入自身目录之外（高风险，默认拒绝）
@@ -98,8 +98,8 @@ Commands:
   run <package> [EXEC_PATH] [args...]  Run a command inside a package environment
   sandbox-run <package> [EXEC_PATH] [args...]  Run with a sandboxed HOME
   bwrap-run <package> [EXEC_PATH] [args...]    Run with bwrap
-  ssinstall <pkg|deb>     Verify against the Spark store and install
-  ssaudit <pkg|deb>       Verify against the Spark store only
+  ssinstall <local deb>   Install a local Spark package (verify required; elevation entry)
+  ssaudit <local deb>     Install a local package even if verification fails
 
   install options:
     --force-outside-paths  Allow writing outside the package directory (risky; refused by default)

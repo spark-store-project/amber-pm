@@ -135,8 +135,8 @@ apm bwrap-run <包名> <命令>     # 使用 bwrap 运行
 ## 5. 本地软件安装（星火商店兼容）
 
 ```bash
-apm ssinstall <包名|deb路径>    # 按星火仓库校验 Size/SHA256 后安装
-apm ssaudit <包名|deb路径>      # 只校验，不安装
+apm ssinstall <本地deb>    # 外部安装器合规提权入口：本地包，校验失败拒绝；依赖可在线补齐
+apm ssaudit <本地deb>      # 本地安装本地包；校验失败也继续安装；依赖可在线补齐
 ```
 
 ## 6. 环境变量
