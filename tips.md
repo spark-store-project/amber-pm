@@ -11,7 +11,7 @@
 3. 安装路径安全：包默认只能写自己的目录（`/var/lib/apm/<包名>/`）。addons 包写
    `<base>/info_layer_addons.d/` 的登记文件是允许的；其它越界路径会被拒绝，
    确认可信后可用 `apm install --force-outside-paths <包>` 强制安装。
-   每个包的文件清单会记录在 `/var/lib/apm/db/<包名>/files.list`，卸载按清单清理，
+   每个包的文件清单会记录在 `/var/lib/apm/apm-conf/db/<包名>/files.list`，卸载按清单清理，
    并同时删除所有用户的 `~/.apm/<包名>`。
 
 4. base 包（如 `amber-pm-trixie`）的 payload 是 `files/ace-env.tar.xz` + `files/bin/ace-init`：

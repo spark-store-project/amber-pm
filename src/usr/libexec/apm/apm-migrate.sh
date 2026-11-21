@@ -132,7 +132,7 @@ apm_cmd_migrate() {
         [ -d "$d" ] || continue
         pkg="$(basename -- "$d")"
         case "$pkg" in
-            apm | db | lists | cache) continue ;;
+            apm | apm-conf | db | lists | cache) continue ;;
         esac
         apm_db_installed "$pkg" && continue
         [ -f "$d/info" ] || [ -d "$d/files" ] || continue

@@ -21,6 +21,15 @@ case "$1" in
 		# 发送统计信息
 		/var/lib/apm/apm/files/feedback.sh &
 
+		# 早期 2.0.x 把 db/lists/cache 直接放在 /var/lib/apm 下，
+		# 现在统一收进 /var/lib/apm/apm-conf
+		mkdir -p /var/lib/apm/apm-conf
+		for sub in db lists cache; do
+			if [ -d "/var/lib/apm/$sub" ] && [ ! -e "/var/lib/apm/apm-conf/$sub" ]; then
+				mv "/var/lib/apm/$sub" "/var/lib/apm/apm-conf/$sub" 2>/dev/null || true
+			fi
+		done
+
 		# 桌面集成
 		amber-pm-dstore-patch || true
 		amber-pm-desktop-fix || true

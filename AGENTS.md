@@ -51,7 +51,7 @@ sudo apm install <包>...        # 安装（也支持 ./xxx.deb）
 sudo apm remove <包>...         # 卸载
 sudo apm upgrade                # 升级所有可升级包
 sudo apm autoremove             # 清理不再需要的依赖
-apm list [--installed|--all|--upgradable]
+apm list [--installed|--upgradable|--manual-installed|--all-versions]
 apm search <关键词>
 apm show / policy / depends / rdepends <包>
 apm download <包>
@@ -62,17 +62,19 @@ apm clean
 ### 2.2 存储布局
 
 ```text
-/var/lib/apm/<包名>/            软件包本体（files/core、entries、info 等）
-/var/lib/apm/db/<包名>/status   安装状态（版本/依赖/Auto/Held/来源/SHA256）
-/var/lib/apm/db/<包名>/files.list 安装的文件清单（绝对路径，一行一个）
-/var/lib/apm/lists/             仓库索引、aptss 服务配置缓存
-/var/lib/apm/cache/             下载的 deb 缓存
-/var/lib/apm/apm/files/         宿主侧的运行脚本（ace-run 等）
+/var/lib/apm/<包名>/                    软件包本体（files/core、entries、info 等）
+/var/lib/apm/apm-conf/db/<包名>/status  安装状态（版本/依赖/Auto/Held/来源/SHA256）
+/var/lib/apm/apm-conf/db/<包名>/files.list 安装的文件清单（绝对路径，一行一个）
+/var/lib/apm/apm-conf/lists/            仓库索引、aptss 服务配置缓存
+/var/lib/apm/apm-conf/cache/            下载的 deb 缓存
+/var/lib/apm/apm/files/                 宿主侧的运行脚本（ace-run 等）
 ```
 
 - 包默认只能写自己的目录；addons 包写 `<base>/info_layer_addons.d/` 的登记文件是允许的。
 - 越界路径默认拒绝安装，确认可信后用 `--force-outside-paths`。
 - 卸载按 `files.list` + 包目录清理，并删除所有用户的 `~/.apm/<包名>`。
+- 数据库/索引/缓存在 `apm-conf` 下，和软件包目录分开；早期 2.0.x 的旧布局
+  （`db`/`lists`/`cache` 直接在 `/var/lib/apm` 下）会在安装/升级时自动迁移。
 
 ### 2.3 仓库与 aptss 兼容
 

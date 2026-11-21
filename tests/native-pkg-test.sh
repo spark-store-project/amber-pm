@@ -249,30 +249,40 @@ mirror_out="$(APM_APTFAST_CONF="$SPARK/apt-fast.conf" bash -c '
 assert_eq "镜像 1 生成正确" "http://mirror1.example/apm/pool/x.deb" "$(printf '%s\n' "$mirror_out" | sed -n 1p)"
 assert_eq "镜像 2 生成正确" "http://mirror2.example/apm/pool/x.deb" "$(printf '%s\n' "$mirror_out" | sed -n 2p)"
 
-# 0.1 配置刷新：模拟 aria2c -c 在目标已存在时跳过下载的行为，
-#     确认 _apm_download_replace 仍然会用新内容替换旧配置
-refresh_target="$(state)/lists/refresh-test.conf"
+# 0.1 配置刷新：远端内容变化（大小相同）时必须替换旧配置
+refresh_src="$WORK/refresh-src.conf"
+refresh_target="$(state)/apm-conf/lists/refresh-test.conf"
 mkdir -p "$(dirname "$refresh_target")"
+printf 'OLD\n' > "$refresh_src"
 printf 'OLD\n' > "$refresh_target"
-refresh_out="$(bash -c '
+printf 'NEW\n' > "$refresh_src"
+bash -c '
+    APM_STATE_DIR="'"$WORK"'/tmp-http-state"
     . "'"$REPO_ROOT"'/src/usr/libexec/apm/apm-lib.sh"
     . "'"$REPO_ROOT"'/src/usr/libexec/apm/apm-repo.sh"
-    apm_download_one() { [ -s "$2" ] && return 0; printf "NEW\n" > "$2"; }
-    _apm_download_replace "http://example/conf" "'"$refresh_target"'"
-    cat "'"$refresh_target"'"
-')"
-assert_eq "配置刷新不会被旧文件跳过" "NEW" "$refresh_out"
+    apm_http_get "file://'"$refresh_src"'" "'"$refresh_target"'"
+' 2>/dev/null
+assert_eq "配置刷新不会被旧文件跳过" "NEW" "$(cat "$refresh_target")"
 
 # ===========================================================================
 # 1. update（读取 aptss 服务配置 + 仓库索引）
 # ===========================================================================
 reset_all() { rm -rf "$ROOT/var/lib/apm"; }
 reset_all
+# 旧布局：db/lists/cache 直接在 /var/lib/apm 下，应由 apm_state_init 迁移
+mkdir -p "$ROOT/var/lib/apm/db" "$ROOT/var/lib/apm/lists" "$ROOT/var/lib/apm/cache"
+printf 'probe\n' > "$ROOT/var/lib/apm/db/legacy-marker"
+printf 'probe\n' > "$ROOT/var/lib/apm/lists/legacy-marker"
+printf 'probe\n' > "$ROOT/var/lib/apm/cache/legacy-marker"
 out="$(run_apm update)"
+assert_file "$(state)/apm-conf/db/legacy-marker" "旧 db 目录迁移到 apm-conf"
+assert_file "$(state)/apm-conf/lists/legacy-marker" "旧 lists 目录迁移到 apm-conf"
+assert_file "$(state)/apm-conf/cache/legacy-marker" "旧 cache 目录迁移到 apm-conf"
+assert_no_file "$ROOT/var/lib/apm/db" "旧 db 目录已移除"
 assert_contains "apm update 成功" "$out" "InRelease 签名校验通过"
 assert_contains "读取 aptss 服务配置" "$out" "获取星火服务配置"
 assert_contains "索引更新完成" "$out" "仓库索引已更新"
-assert_file "$(state)/lists/Packages" "索引文件已保存"
+assert_file "$(state)/apm-conf/lists/Packages" "索引文件已保存"
 assert_file "$SPARK/apt-fast.conf" "服务配置已缓存"
 
 # ===========================================================================
@@ -284,14 +294,20 @@ assert_contains "先安装依赖 fake-base" "$out" "安装 fake-base 1.0"
 assert_file "$(state)/fake-app/files/core/opt/fake/version.txt" "应用文件已安装"
 assert_file "$(state)/fake-base/files/ace-env.tar.xz" "base 包 rootfs 保留（测试模式跳过 init）"
 assert_eq "数据库记录版本" "1.0" "$(run_apm show fake-app | awk '$1=="Version:"{print $2; exit}')"
-assert_eq "依赖包标记为 auto" "1" "$(awk '$1=="Auto:"{print $2}' "$(state)/db/fake-base/status")"
-assert_eq "直接安装的包标记为 manual" "0" "$(awk '$1=="Auto:"{print $2}' "$(state)/db/fake-app/status")"
+assert_eq "依赖包标记为 auto" "1" "$(awk '$1=="Auto:"{print $2}' "$(state)/apm-conf/db/fake-base/status")"
+assert_eq "直接安装的包标记为 manual" "0" "$(awk '$1=="Auto:"{print $2}' "$(state)/apm-conf/db/fake-app/status")"
 
 out="$(run_apm list)"
-assert_contains "list 显示已安装包" "$out" "fake-app/now 1.0"
-assert_contains "list 显示依赖包" "$out" "fake-base/now 1.0"
+assert_contains "list 显示已安装包" "$out" "fake-app/"
+assert_contains "list 标记 installed" "$out" "1.0 all [installed]"
+assert_contains "list 显示依赖包" "$out" "fake-base/"
+assert_contains "list 标记 automatic" "$out" "[installed,automatic]"
+assert_contains "list 有 Listing... 头" "$out" "Listing..."
 out="$(run_apm list --all)"
 assert_contains "list --all 显示可用包" "$out" "fake-addon/"
+out="$(run_apm list --manual-installed)"
+assert_contains "list --manual-installed 含手动包" "$out" "fake-app/"
+assert_not_contains "list --manual-installed 不含自动依赖" "$out" "fake-base/"
 assert_contains "search 命中" "$(run_apm search fake)" "fake-app/"
 assert_contains "show 输出控制字段" "$(run_apm show fake-app)" "Package: fake-app"
 assert_contains "depends 输出依赖" "$(run_apm depends fake-app)" "fake-base"
@@ -315,7 +331,7 @@ assert_file "$(state)/fake-base/info_layer_addons.d/50-fake-addon" "addon 登记
 run_apm remove fake-addon >/dev/null
 assert_no_file "$(state)/fake-addon" "addon 包目录已删除"
 assert_no_file "$(state)/fake-base/info_layer_addons.d/50-fake-addon" "addon 登记文件已删除"
-assert_no_file "$(state)/db/fake-addon" "addon 数据库记录已删除"
+assert_no_file "$(state)/apm-conf/db/fake-addon" "addon 数据库记录已删除"
 assert_file "$(state)/fake-base/files/ace-env.tar.xz" "base 包本身未被破坏"
 
 # ===========================================================================
@@ -324,7 +340,7 @@ assert_file "$(state)/fake-base/files/ace-env.tar.xz" "base 包本身未被破�
 out="$(run_apm install evil-path)"
 assert_contains "越界包被拒绝" "$out" "试图写入包目录之外"
 assert_no_file "$ROOT/usr/bin/apm-evil" "越界文件未写入"
-assert_not_contains "拒绝时不写数据库" "$(run_apm list)" "evil-path"
+assert_not_contains "拒绝时不写数据库" "$(run_apm list --installed)" "evil-path"
 out="$(run_apm install --force-outside-paths evil-path)"
 assert_contains "强制安装成功" "$out" "安装 evil-path 1.0"
 assert_file "$ROOT/usr/bin/apm-evil" "强制安装写入越界路径"
@@ -342,7 +358,7 @@ run_apm update >/dev/null
 
 out="$(run_apm upgrade)"
 assert_contains "升级 fake-app 到 2.0" "$out" "升级 1.0 -> 2.0"
-assert_eq "数据库版本已更新" "2.0" "$(awk '$1=="Version:"{print $2; exit}' "$(state)/db/fake-app/status")"
+assert_eq "数据库版本已更新" "2.0" "$(awk '$1=="Version:"{print $2; exit}' "$(state)/apm-conf/db/fake-app/status")"
 assert_file "$(state)/fake-app/files/core/opt/fake/only-in-2.0" "新版本文件已安装"
 assert_no_file "$(state)/fake-app/files/core/opt/fake/only-in-1.0" "旧版本文件已清理"
 assert_contains "无升级时提示" "$(run_apm upgrade)" "没有需要升级的软件包"
@@ -351,9 +367,9 @@ assert_contains "无升级时提示" "$(run_apm upgrade)" "没有需要升级的
 # 7. hold / unhold
 # ===========================================================================
 run_apm hold fake-app >/dev/null
-assert_eq "hold 标记" "1" "$(awk '$1=="Held:"{print $2}' "$(state)/db/fake-app/status")"
+assert_eq "hold 标记" "1" "$(awk '$1=="Held:"{print $2}' "$(state)/apm-conf/db/fake-app/status")"
 run_apm unhold fake-app >/dev/null
-assert_eq "unhold 标记" "0" "$(awk '$1=="Held:"{print $2}' "$(state)/db/fake-app/status")"
+assert_eq "unhold 标记" "0" "$(awk '$1=="Held:"{print $2}' "$(state)/apm-conf/db/fake-app/status")"
 
 # ===========================================================================
 # 8. 卸载保护与 autoremove
@@ -366,7 +382,7 @@ assert_no_file "$(state)/fake-app" "应用包目录已删除"
 assert_no_file "$HOMES/.apm/fake-app" "用户目录 ~/.apm/<pkg> 已清理"
 out="$(run_apm autoremove)"
 assert_contains "autoremove 清理自动依赖" "$out" "卸载 fake-base"
-assert_eq "已安装列表为空" "" "$(run_apm list)"
+assert_eq "已安装列表为空" "Listing..." "$(run_apm list --installed)"
 
 # ===========================================================================
 # 9. ssinstall / ssaudit（本地 deb 校验）
@@ -389,7 +405,7 @@ assert_file "$(state)/fake-app/files/core/opt/fake/version.txt" "ssinstall 安�
 ( cd "$WORK" && run_apm download fake-app >/dev/null ) || true
 assert_file "$WORK/fake-app_2.0_all.deb" "download 下载到当前目录"
 run_apm clean >/dev/null
-assert_eq "clean 后缓存为空" "0" "$(find "$(state)/cache" -name '*.deb' 2>/dev/null | wc -l)"
+assert_eq "clean 后缓存为空" "0" "$(find "$(state)/apm-conf/cache" -name '*.deb' 2>/dev/null | wc -l)"
 out="$(run_apm debug)"
 assert_contains "debug 打印主机信息" "$out" "== 主机 =="
 assert_contains "debug 打印 APM 信息" "$out" "== APM =="
@@ -438,8 +454,8 @@ out="$(
 )"
 assert_contains "迁移命令成功" "$out" "迁移完成"
 assert_file "$MIG/var/lib/apm/legacy-app/files/core/opt/legacy/file" "包目录已迁移"
-assert_file "$MIG/var/lib/apm/db/legacy-app/status" "迁移生成数据库"
-assert_eq "迁移保留版本号" "0.9" "$(awk '$1=="Version:"{print $2; exit}' "$MIG/var/lib/apm/db/legacy-app/status")"
+assert_file "$MIG/var/lib/apm/apm-conf/db/legacy-app/status" "迁移生成数据库"
+assert_eq "迁移保留版本号" "0.9" "$(awk '$1=="Version:"{print $2; exit}' "$MIG/var/lib/apm/apm-conf/db/legacy-app/status")"
 assert_no_file "$oldenv" "旧管理环境已删除"
 assert_not_contains "桌面文件旧路径已重写" "$(cat "$MIG/var/lib/apm/legacy-app/entries/applications/legacy.desktop")" "ace-env"
 assert_contains "桌面文件路径改为宿主路径" "$(cat "$MIG/var/lib/apm/legacy-app/entries/applications/legacy.desktop")" "Icon=/var/lib/apm/legacy-app"

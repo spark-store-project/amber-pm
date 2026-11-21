@@ -3,7 +3,7 @@
 # apm-install.sh —— 安装 / 卸载 / 升级 / 查询（原生实现，不用 apt/dpkg）
 #
 # 包仍然装在 /var/lib/apm/<包名>/（与旧布局一致，运行时的 overlay 逻辑不变）；
-# 状态记录在 /var/lib/apm/db/。安装步骤：解析依赖 → 下载并校验 .deb →
+# 状态记录在 /var/lib/apm/apm-conf/db/。安装步骤：解析依赖 → 下载并校验 .deb →
 # 解包到 staging 并检查路径 → 写入文件 → base 包执行 ace-init → 记录数据库。
 # =============================================================================
 
@@ -755,47 +755,91 @@ apm_cmd_unhold() {
 # 查询类命令
 # ---------------------------------------------------------------------------
 apm_cmd_list() {
-    local mode="installed"
+    # 行为对齐 apt list：默认列出所有可用软件包（已安装的带状态标记）
+    local mode="all"
     while [ $# -gt 0 ]; do
         case "$1" in
-            --all) mode="all" ;;
-            --upgradable) mode="upgradable" ;;
             --installed) mode="installed" ;;
+            --upgradable) mode="upgradable" ;;
+            --manual-installed) mode="manual" ;;
+            --all | --all-versions | -a) mode="all" ;;
+            -h | --help)
+                log.info "用法: apm list [--installed|--upgradable|--manual-installed|--all-versions]"
+                return 0
+                ;;
             *) die "未知选项: $1" ;;
         esac
         shift
     done
 
-    local p version cand
-    case "$mode" in
-        installed)
-            for p in $(apm_db_list); do
-                printf '%s/now %s %s [installed]\n' "$p" "$(apm_db_version "$p")" "$(apm_db_arch "$p")"
-            done
-            ;;
-        all)
-            apm_repo_names | while IFS= read -r p; do
-                if apm_db_installed "$p"; then
-                    printf '%s/now %s %s [installed]\n' "$p" "$(apm_db_version "$p")" "$(apm_repo_arch "$p")"
+    local repo have_index=0
+    repo="$(apm_repo_dir_name)"
+    [ -s "$APM_PACKAGES_FILE" ] && have_index=1
+    if [ "$have_index" = "0" ] && [ "$mode" != "installed" ] && [ "$mode" != "manual" ]; then
+        log.warn "本地还没有仓库索引，仅列出已安装的软件包（sudo apm update 可获取索引）"
+    fi
+
+    # apt list 输出的第一行
+    printf 'Listing...\n'
+
+    local names name instv cand arch auto
+    if [ "$mode" = "all" ] && [ "$have_index" = "1" ]; then
+        names="$( { apm_repo_names; apm_db_list; } | sort -u )"
+    else
+        names="$(apm_db_list | sort -u)"
+    fi
+
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        instv=""
+        auto="0"
+        arch=""
+        if apm_db_installed "$name"; then
+            instv="$(apm_db_version "$name")"
+            arch="$(apm_db_arch "$name")"
+            auto="$(apm_db_auto "$name" 2>/dev/null || echo 0)"
+        fi
+        cand=""
+        if [ "$have_index" = "1" ]; then
+            cand="$(apm_repo_version "$name" 2>/dev/null)"
+            [ -n "$arch" ] || arch="$(apm_repo_arch "$name" 2>/dev/null)"
+        fi
+
+        case "$mode" in
+            installed | manual)
+                [ -n "$instv" ] || continue
+                [ "$mode" = "manual" ] && [ "$auto" = "1" ] && continue
+                if [ -n "$cand" ]; then
+                    printf '%s/%s,now %s %s [installed%s]\n' "$name" "$repo" "$instv" "$arch" \
+                        "$([ "$auto" = "1" ] && printf ',automatic')"
                 else
-                    printf '%s/%s %s %s\n' "$p" "$(apm_repo_dir_name)" \
-                        "$(apm_repo_version "$p")" "$(apm_repo_arch "$p")"
+                    printf '%s/now %s %s [installed%s,local]\n' "$name" "$instv" "$arch" \
+                        "$([ "$auto" = "1" ] && printf ',automatic')"
                 fi
-            done
-            ;;
-        upgradable)
-            for p in $(apm_db_list); do
-                [ "$(apm_db_held "$p")" = "1" ] && continue
-                cand="$(apm_repo_version "$p")"
-                [ -n "$cand" ] || continue
-                version="$(apm_db_version "$p")"
-                if [ "$(apm_vercmp "$version" "$cand")" = "-1" ]; then
-                    printf '%s/%s %s %s [upgradable from: %s]\n' \
-                        "$p" "$(apm_repo_dir_name)" "$cand" "$(apm_db_arch "$p")" "$version"
+                ;;
+            upgradable)
+                [ -n "$instv" ] && [ -n "$cand" ] || continue
+                [ "$(apm_db_held "$name")" = "1" ] && continue
+                [ "$(apm_vercmp "$instv" "$cand")" = "-1" ] || continue
+                printf '%s/%s %s %s [upgradable from: %s]\n' "$name" "$repo" "$cand" "$arch" "$instv"
+                ;;
+            all)
+                if [ -z "$instv" ]; then
+                    [ -n "$cand" ] || continue
+                    printf '%s/%s %s %s\n' "$name" "$repo" "$cand" "$arch"
+                elif [ -n "$cand" ] && [ "$(apm_db_held "$name")" != "1" ] &&
+                    [ "$(apm_vercmp "$instv" "$cand")" = "-1" ]; then
+                    printf '%s/%s %s %s [upgradable from: %s]\n' "$name" "$repo" "$cand" "$arch" "$instv"
+                elif [ -n "$cand" ]; then
+                    printf '%s/%s,now %s %s [installed%s]\n' "$name" "$repo" "$instv" "$arch" \
+                        "$([ "$auto" = "1" ] && printf ',automatic')"
+                else
+                    printf '%s/now %s %s [installed%s,local]\n' "$name" "$instv" "$arch" \
+                        "$([ "$auto" = "1" ] && printf ',automatic')"
                 fi
-            done
-            ;;
-    esac
+                ;;
+        esac
+    done <<< "$names"
 }
 
 apm_cmd_search() {

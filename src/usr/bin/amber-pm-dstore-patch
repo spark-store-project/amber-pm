@@ -9,6 +9,9 @@ enumAppInfoList() {
     apps="/var/lib/apm"
     list=$(ls $apps 2>/dev/null)
     for appID in $list; do
+        case "$appID" in
+            apm | apm-conf | db | lists | cache) continue ;;
+        esac
         appInfoList+=("$appID")
     done
     echo "${appInfoList[@]}"

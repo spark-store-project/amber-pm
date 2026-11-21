@@ -20,9 +20,24 @@
 APM_ROOT="${APM_ROOT:-/}"
 APM_ROOT="${APM_ROOT%/}"
 APM_STATE_DIR="${APM_STATE_DIR:-${APM_ROOT}/var/lib/apm}"
-APM_DB_DIR="$APM_STATE_DIR/db"
-APM_LISTS_DIR="$APM_STATE_DIR/lists"
-APM_CACHE_DIR="$APM_STATE_DIR/cache"
+# APM 自己的状态/缓存目录（和已安装的软件包目录分开）
+APM_CONF_DIR="${APM_CONF_DIR:-${APM_STATE_DIR}/apm-conf}"
+APM_DB_DIR="$APM_CONF_DIR/db"
+APM_LISTS_DIR="$APM_CONF_DIR/lists"
+APM_CACHE_DIR="$APM_CONF_DIR/cache"
+
+# 兼容 2.0.0~alpha1 及更早版本的旧布局（db/lists/cache 直接放在 /var/lib/apm）
+# 只读命令会先用旧位置；apm_state_init（需要 root）会迁移到 apm-conf。
+for _apm_sub in db lists cache; do
+    if [ -d "$APM_STATE_DIR/$_apm_sub" ] && [ ! -d "$APM_CONF_DIR/$_apm_sub" ]; then
+        case "$_apm_sub" in
+            db) APM_DB_DIR="$APM_STATE_DIR/db" ;;
+            lists) APM_LISTS_DIR="$APM_STATE_DIR/lists" ;;
+            cache) APM_CACHE_DIR="$APM_STATE_DIR/cache" ;;
+        esac
+    fi
+done
+unset _apm_sub
 APM_SPARK_URL="${APM_SPARK_URL:-https://d.spark-app.store}"
 APM_KEYRING="${APM_KEYRING:-${APM_ROOT}/etc/apt/trusted.gpg.d/apm.gpg}"
 APM_INSECURE="${APM_INSECURE:-0}"
@@ -114,8 +129,28 @@ apm_require_root() {
 }
 
 apm_state_init() {
-    mkdir -p "$APM_DB_DIR" "$APM_LISTS_DIR" "$APM_CACHE_DIR" 2>/dev/null ||
+    mkdir -p "$APM_STATE_DIR" "$APM_CONF_DIR" 2>/dev/null ||
         die "无法创建 APM 数据目录: $APM_STATE_DIR"
+
+    # 早期 2.0.x：db/lists/cache 曾直接放在 /var/lib/apm 下
+    local sub
+    for sub in db lists cache; do
+        if [ -e "$APM_STATE_DIR/$sub" ] && [ ! -e "$APM_CONF_DIR/$sub" ]; then
+            mv -f -- "$APM_STATE_DIR/$sub" "$APM_CONF_DIR/$sub" 2>/dev/null || true
+        fi
+    done
+
+    APM_DB_DIR="$APM_CONF_DIR/db"
+    APM_LISTS_DIR="$APM_CONF_DIR/lists"
+    APM_CACHE_DIR="$APM_CONF_DIR/cache"
+    # apm-repo.sh 里根据 APM_LISTS_DIR 拼出的路径也要一起更新
+    APM_REPO_LIST_FILE="$APM_LISTS_DIR/aptss.list"
+    APM_APTFAST_CONF="$APM_LISTS_DIR/apt-fast.conf"
+    APM_INRELEASE_FILE="$APM_LISTS_DIR/InRelease"
+    APM_PACKAGES_FILE="$APM_LISTS_DIR/Packages"
+    APM_REPO_META="$APM_LISTS_DIR/repo.meta"
+    mkdir -p "$APM_DB_DIR" "$APM_LISTS_DIR" "$APM_CACHE_DIR" 2>/dev/null ||
+        die "无法创建 APM 数据目录: $APM_CONF_DIR"
 }
 
 # 判断目录是否属于当前用户可写（APM_ROOT 测试场景用）
@@ -279,8 +314,28 @@ apm_download_one() { # url dest
     mv -f "$dest.part" "$dest"
 }
 
+# 配置/列表/索引等小文件直接用 curl 下载，写入临时文件后原子替换。
+# 不要用 aria2c：它带 -c 时对已存在的完整文件会跳过下载，导致配置无法更新。
 apm_http_get() { # url dest
-    apm_download_one "$1" "$2"
+    local url="$1" dest="$2" tmp
+    local -a copts=(-fL --retry "${APM_MAXRETRY:-2}" --retry-delay 1 \
+        --connect-timeout 30 --max-time 600)
+    if [ -t 2 ]; then
+        copts+=(--progress-bar)
+    else
+        copts+=(--silent --show-error)
+    fi
+    mkdir -p "$(dirname -- "$dest")" || return 1
+    tmp="$(mktemp "${dest}.tmp.XXXXXX" 2>/dev/null)" || return 1
+    if ! curl "${copts[@]}" -o "$tmp" "$url"; then
+        rm -f -- "$tmp"
+        return 1
+    fi
+    if [ ! -s "$tmp" ]; then
+        rm -f -- "$tmp"
+        return 1
+    fi
+    mv -f -- "$tmp" "$dest"
 }
 
 # 人类可读大小

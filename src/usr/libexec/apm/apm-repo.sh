@@ -54,26 +54,11 @@ _apm_conf_value() { # 文件 key
         }' "$2" 2>/dev/null
 }
 
-# 下载到临时文件后原子替换。
-# 不能直接下载到目标文件：aria2c -c 遇到已存在的完整文件会跳过下载，
-# 导致 apt-fast.conf / 源列表在远端更新后仍使用旧内容。
-_apm_download_replace() { # url dest
-    local url="$1" dest="$2" tmp
-    mkdir -p "$(dirname -- "$dest")" || return 1
-    tmp="$(mktemp "${dest}.tmp.XXXXXX")" || return 1
-    if apm_download_one "$url" "$tmp"; then
-        mv -f -- "$tmp" "$dest"
-        return 0
-    fi
-    rm -f -- "$tmp"
-    return 1
-}
-
 apm_aptss_conf_load() { # [--refresh]
     local refresh="${1:-}"
     if [ "$refresh" = "--refresh" ] || [ ! -s "$APM_APTFAST_CONF" ]; then
         log.info "获取星火服务配置 apt-fast.conf"
-        _apm_download_replace "$APM_SPARK_URL/apt-fast.conf" "$APM_APTFAST_CONF" ||
+        apm_http_get "$APM_SPARK_URL/apt-fast.conf" "$APM_APTFAST_CONF" ||
             log.warn "无法获取 apt-fast.conf，使用默认下载参数（或沿用旧配置）"
     fi
     [ -s "$APM_APTFAST_CONF" ] || return 0
@@ -123,7 +108,7 @@ apm_aptss_list_lookup() { # [--refresh]
     if [ "$refresh" = "--refresh" ] || [ ! -s "$APM_REPO_LIST_FILE" ]; then
         local list_name="apm-${APM_ARCH}.list"
         log.info "获取星火服务源列表 $list_name"
-        if ! _apm_download_replace "$APM_SPARK_URL/$list_name" "$APM_REPO_LIST_FILE"; then
+        if ! apm_http_get "$APM_SPARK_URL/$list_name" "$APM_REPO_LIST_FILE"; then
             log.debug "获取 $list_name 失败，沿用旧列表或回退到默认仓库地址"
             return 1
         fi
@@ -215,7 +200,7 @@ apm_repo_update() {
     trap "rm -rf -- '$tmp'" EXIT
 
     local release_file=""
-    if apm_download_one "$repo/InRelease" "$tmp/InRelease"; then
+    if apm_http_get "$repo/InRelease" "$tmp/InRelease"; then
         release_file="$tmp/InRelease"
         if ! _apm_verify_release "$release_file" "$repo"; then
             trap - EXIT
@@ -225,9 +210,9 @@ apm_repo_update() {
         log.info "InRelease 签名校验通过"
     else
         log.warn "无法获取 InRelease，尝试 Release + Release.gpg"
-        apm_download_one "$repo/Release" "$tmp/Release" ||
+        apm_http_get "$repo/Release" "$tmp/Release" ||
             die "无法获取仓库元数据: $repo"
-        if ! apm_download_one "$repo/Release.gpg" "$tmp/Release.gpg"; then
+        if ! apm_http_get "$repo/Release.gpg" "$tmp/Release.gpg"; then
             trap - EXIT
             rm -rf -- "$tmp"
             die "仓库缺少 Release.gpg，拒绝使用未签名仓库（可用 APM_INSECURE=1 跳过）"
@@ -261,7 +246,7 @@ apm_repo_update() {
     }
 
     log.info "下载索引 $index_name"
-    apm_download_one "$repo/$index_name" "$tmp/$index_name" ||
+    apm_http_get "$repo/$index_name" "$tmp/$index_name" ||
         die "下载索引失败: $repo/$index_name"
 
     local actual

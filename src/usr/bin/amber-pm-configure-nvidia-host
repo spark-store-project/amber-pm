@@ -7,10 +7,10 @@ for dir in "$APM_BASE"/*/; do
     # 移除末尾的斜杠获取目录名
     dirname=$(basename "$dir")
     
-    # 跳过名为 "apm" 的目录
-    if [[ "$dirname" == "apm" ]]; then
-        continue
-    fi
+    # 跳过 APM 自身和状态目录
+    case "$dirname" in
+        apm | apm-conf | db | lists | cache) continue ;;
+    esac
     
     # 检查是否存在 /var/lib/apm/目录名/files/ace-env
     if [[ -d "$dir/files/ace-env" ]]; then

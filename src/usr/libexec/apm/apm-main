@@ -684,6 +684,10 @@ apm_debug_info() {
     printf '版本:       %s\n' "$APM_VERSION"
     printf '程序目录:   %s\n' "$_apm_lib_dir"
     printf '数据目录:   %s\n' "$APM_STATE_DIR"
+    printf '配置目录:   %s\n' "$APM_CONF_DIR"
+    if [ "$APM_LISTS_DIR" != "$APM_CONF_DIR/lists" ]; then
+        printf '            （正在使用旧布局 %s，安装/升级后会自动迁移）\n' "$APM_STATE_DIR"
+    fi
     printf '仓库地址:   %s\n' "$(apm_repo_url 2>/dev/null || echo 未知)"
     printf '仓库索引:   %s\n' "$(
         if [ -s "$APM_PACKAGES_FILE" ]; then

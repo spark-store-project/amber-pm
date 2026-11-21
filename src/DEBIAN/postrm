@@ -11,7 +11,7 @@ systemctl disable apm-daily-update 2>/dev/null || true
 
 if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
     echo "清理 APM 运行数据（保留已安装的软件包）"
-    rm -rf /var/lib/apm/apm /var/lib/apm/db /var/lib/apm/lists /var/lib/apm/cache
+    rm -rf /var/lib/apm/apm /var/lib/apm/apm-conf
     echo "已安装的软件包仍保留在 /var/lib/apm/；如需全部删除请手动执行: rm -rf /var/lib/apm"
 else
     echo "非卸载，跳过清理"

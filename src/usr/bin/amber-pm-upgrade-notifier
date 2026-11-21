@@ -69,7 +69,7 @@ main() {
 
     local upgradable count
     upgradable="$(apm list --upgradable 2>/dev/null)"
-    count="$(printf '%s\n' "$upgradable" | grep -c . || true)"
+    count="$(printf '%s\n' "$upgradable" | grep -v '^Listing\.\.\.$' | grep -c . || true)"
     if [ "${count:-0}" -le 0 ]; then
         exit 0
     fi

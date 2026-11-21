@@ -8,7 +8,7 @@ _apm_installed_pkgs() {
         base=${d%/}
         base=${base##*/}
         case "$base" in
-            apm | db | lists | cache) continue ;;
+            apm | apm-conf | db | lists | cache) continue ;;
         esac
         [ -f "$d/info" ] || [ -d "$d/files" ] || continue
         REPLY+=("$base")
