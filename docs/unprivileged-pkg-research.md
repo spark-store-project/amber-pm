@@ -1,6 +1,6 @@
 # APM 无特权包管理调研报告
 
-> 版本基线：APM 2.0.0~alpha4 / 原生包管理实现（不依赖 dpkg/apt）
+> 版本基线：APM 2.0.0~beta / 原生包管理实现（不依赖 dpkg/apt）
 > 结论先行：**“用户级安装应用”可行，且改动量可控；“完全无特权安装 base 环境”需要重写 base 初始化流程，建议作为第二阶段。**
 > 本机实验环境：GXDE OS 25（Debian 系，aarch64），bwrap / fuse-overlayfs / userns 均可用。
 
