@@ -1063,24 +1063,43 @@ apm_cmd_list() {
 
 apm_cmd_search() {
     [ $# -gt 0 ] || die "$(apm_t "请给出搜索关键词" "Please provide search keywords")"
-    local kw="$*" p
-    local repo
+    local kw="$*" repo
     repo="$(apm_repo_dir_name)"
-    apm_repo_search "$kw" | awk -v repo="$repo" 'BEGIN { RS = ""; FS = "\n" } {
-        name = ""; desc = ""; ver = ""
-        for (i = 1; i <= NF; i++) {
-            if ($i ~ /^Package: /) name = substr($i, 10)
-            if ($i ~ /^Version: /) ver = substr($i, 10)
-            if ($i ~ /^Description: /) desc = substr($i, 14)
-        }
-        printf "%s/%s %s - %s\n", name, repo, ver, desc
-    }'
-    # 已安装的也提示
-    for p in $(apm_db_list); do
-        if printf '%s\n' "$p" | grep -qi -- "$kw"; then
-            printf '%s [installed]\n' "$p"
-        fi
-    done
+
+    # 一次 awk 扫描仓库索引并直接输出结果，避免“先输出完整 stanza、再解析一遍”
+    if [ -s "$APM_PACKAGES_FILE" ]; then
+        awk -v kw="$kw" -v repo="$repo" '
+            BEGIN { RS = ""; FS = "\n"; kw = tolower(kw) }
+            {
+                if (index(tolower($0), kw) == 0) next
+                name = ""; ver = ""; desc = ""; indesc = 0
+                for (i = 1; i <= NF; i++) {
+                    if ($i ~ /^Package: /) {
+                        name = substr($i, 10)
+                        indesc = 0
+                    } else if ($i ~ /^Version: /) {
+                        ver = substr($i, 10)
+                        indesc = 0
+                    } else if ($i ~ /^Description: /) {
+                        desc = substr($i, 14)
+                        indesc = 1
+                    } else if (indesc && $i ~ /^[ \t]/) {
+                        line = $i
+                        sub(/^[ \t]+/, "", line)
+                        desc = desc " " line
+                    } else if (indesc) {
+                        indesc = 0
+                    }
+                }
+                printf "%s/%s %s - %s\n", name, repo, ver, desc
+            }' "$APM_PACKAGES_FILE"
+    fi
+
+    # 已安装包也提示；一次 awk 处理，避免每个包都启动一个 grep
+    apm_db_list | awk -v kw="$kw" '
+        BEGIN { kw = tolower(kw) }
+        index(tolower($0), kw) > 0 { print $0 " [installed]" }
+    '
 }
 
 apm_cmd_show() {

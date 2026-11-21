@@ -37,7 +37,9 @@ apm_db_list() {
     [ -d "$APM_DB_DIR" ] || return 0
     for d in "$APM_DB_DIR"/*/; do
         [ -f "${d}status" ] || continue
-        basename -- "$d"
+        # 用参数展开代替 basename，避免每个包启动一个外部进程
+        d="${d%/}"
+        printf '%s\n' "${d##*/}"
     done
 }
 
