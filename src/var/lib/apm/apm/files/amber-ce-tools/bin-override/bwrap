@@ -1,2 +1,3 @@
 #!/bin/bash
-host-spawn /var/lib/apm/apm/files/bin/ace-run-bwrap "$@"
+# 旧版这里调用的是不存在的 ace-run-bwrap；现在明确转到主机 bwrap
+exec host-spawn /usr/bin/bwrap "$@"

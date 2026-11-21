@@ -1,6 +1,6 @@
 # host-spawn / flatpak 依赖调研报告
 
-> 环境：GXDE OS 25（Debian 13 系，aarch64），APM 2.0.0~beta，base `amber-pm-trixie`
+> 环境：GXDE OS 25（Debian 13 系，aarch64），APM 2.0.0~beta1，base `amber-pm-trixie`
 > 结论先行：
 > 1. **host-spawn 的绝大多数用途可以用 shell 脚本 + `systemd-run --user` 替代**，且能去掉 flatpak 依赖；
 > 2. 但脚本无法 100% 复刻 host-spawn 的 PTY/信号/cwd 细节，`pkexec`/交互式 sudo 需要实机验证；
@@ -309,3 +309,30 @@ apm run amber-pm-trixie bash -c '
         --dev /dev --proc /proc --ro-bind /sys /sys --dev-bind /run /run \
         /usr/bin/xdg-open --version'
 ```
+
+---
+
+## 8. 实施结果（2.0.0~beta1）
+
+本报告中的方案 A 已实现：
+
+- `amber-ce-tools/bin-override/host-spawn-*` 三个 Go 二进制已删除，替换为
+  `bin-override/host-spawn` shell 脚本（约 2.6 KB，纯文本）。
+- `host-spawn` 脚本通过 `systemd-run --user` 在主机执行命令，并用
+  `/usr/bin/env` 让主机自己解析 PATH（解决 `fastfetch` 这类 base 里不存在的命令）。
+- `sudo` / `pkexec` / `bwrap` wrapper 已去掉对已删除的 `apm-debug` 的依赖；
+  `gio` / `xdg-open` 的参数引用也已修正。
+- `src/DEBIAN/control` 已去掉 `flatpak` 依赖。
+- APM 包现在是**纯脚本的 Architecture: all 单包**：src 内不再有任何 ELF 文件；
+  实测 deb 从 6.37 MB 降到 **724 KB**。
+- `ace-run` 会把 APM 包自带的 `amber-ce-tools/bin-override` 放到容器 PATH 最前面
+  （通过 `/host` 挂载），因此**旧 base 不用立刻重建**也能使用新的 host-spawn 脚本；
+  但旧 base 里的 11.4 MB host-spawn 二进制仍然占空间，重建 base 后才会真正减小。
+- 已在 `amber-pm-trixie` 容器里验证：`host-spawn fastfetch`、`-env`、cwd、
+  stdin/退出码、`sudo -n`、`pkexec --version`、`bwrap --version`、`gio version` 正常。
+
+仍需注意：
+
+- 非 systemd 宿主无法使用新脚本（会明确报错），需要保留旧 host-spawn 兼容包；
+- `pkexec` 的 polkit 弹窗、密码 sudo、PTY 窗口大小/信号需要在真实桌面再验证；
+- 所有 base 包的 `amber-ce-tools` 建议随下一个 base 版本重建，删除旧二进制。

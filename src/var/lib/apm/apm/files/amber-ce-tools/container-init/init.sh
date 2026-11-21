@@ -115,9 +115,8 @@ mkdir -p /usr/share/fonts
 mkdir -p /usr/share/icons
 mkdir -p /usr/share/themes
 
-## init host-spawn
-unlink /amber-ce-tools/bin-override/host-spawn
-ln -sfv /amber-ce-tools/bin-override/host-spawn-$(uname -m) /amber-ce-tools/bin-override/host-spawn
+## host-spawn 现在是脚本，不需要按架构创建软链
+chmod +x /amber-ce-tools/bin-override/host-spawn
 
 
 

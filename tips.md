@@ -46,3 +46,5 @@
 * 重要：如何在 APM 内更新内容——如何覆盖？
 * deb 全自动转 apm
 * 2.0.0：原生包管理，移除 dpkg/apt 与管理环境 rootfs，兼容 aptss 配置与多线下载
+
+8. 2.0.0~beta1 起 host-spawn 改为 systemd-run 脚本，不再依赖 flatpak；APM 安装包是纯脚本的 all 包，不再包含按架构的 host-spawn 二进制。

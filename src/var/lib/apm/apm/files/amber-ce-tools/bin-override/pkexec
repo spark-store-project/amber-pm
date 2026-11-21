@@ -1,6 +1,6 @@
 #!/bin/bash
-if [ "$UID" = "0" ];then
-$@
-else
-host-spawn pkexec apm-debug $@
+# 通过 host-spawn 在主机上执行 pkexec（由主机的 polkit agent 弹认证框）
+if [ "$(id -u)" = "0" ]; then
+    exec "$@"
 fi
+exec host-spawn pkexec "$@"

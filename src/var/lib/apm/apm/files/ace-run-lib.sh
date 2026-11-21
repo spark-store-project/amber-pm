@@ -60,13 +60,31 @@ ace_is_nixos() {
     [ -f /etc/os-release ] && grep -Eq '^ID="?nixos"?$' /etc/os-release
 }
 
+# APM 宿主侧的工具目录（host-spawn 脚本等）。
+# 新版 APM 会把它挂到容器 /host 下，并优先于 base 里自带的旧工具，
+# 这样即使 base 还没重建，也能用上不依赖 flatpak 的 host-spawn。
+ace_host_tools_dir() {
+    local d
+    d="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || return 1
+    d="$d/amber-ce-tools/bin-override"
+    [ -x "$d/host-spawn" ] || return 1
+    printf '%s\n' "$d"
+}
+
 # 容器内的 PATH（保持旧行为：优先使用 /amber-ce-tools/bin-override）。
+# 如果 APM 包自带新的 host-spawn 脚本，则在最前面插入 /host 下的工具目录。
 ace_container_path() {
     local host_path="${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
+    local host_tools=""
+    host_tools="$(ace_host_tools_dir 2>/dev/null || true)"
+    local prefix=""
+    if [ -n "$host_tools" ]; then
+        prefix="/host$host_tools:"
+    fi
     if ace_is_nixos; then
-        printf '%s' "/amber-ce-tools/bin-override:/usr/local/bin:/usr/bin/"
+        printf '%s' "${prefix}/amber-ce-tools/bin-override:/usr/local/bin:/usr/bin/"
     else
-        printf '%s' "/amber-ce-tools/bin-override:${host_path}"
+        printf '%s' "${prefix}/amber-ce-tools/bin-override:${host_path}"
     fi
 }
 

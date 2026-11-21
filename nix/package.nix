@@ -27,7 +27,7 @@
   xdg-user-dirs,
   xz,
   zenity,
-  version ? "2.0.0~beta",
+  version ? "2.0.0~beta1",
   sourceRoot ? ../.,
   src ? lib.cleanSourceWith {
     src = sourceRoot;
@@ -116,6 +116,7 @@ stdenvNoCC.mkDerivation {
       "$out/var/lib/apm/apm/files/feedback.sh" \
       "$out/var/lib/apm/apm/files/amber-ce-tools/ace-upgrader/ace-upgrader" \
       "$out/var/lib/apm/apm/files/amber-ce-tools/container-init/init.sh" \
+      "$out/var/lib/apm/apm/files/amber-ce-tools/bin-override/host-spawn" \
       "$out/var/lib/apm/apm/files/amber-ce-tools/bin-override/apm-debug" \
       "$out/var/lib/apm/apm/files/amber-ce-tools/bin-override/bwrap" \
       "$out/var/lib/apm/apm/files/amber-ce-tools/bin-override/gio" \

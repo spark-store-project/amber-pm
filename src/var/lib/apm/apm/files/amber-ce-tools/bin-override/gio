@@ -1,6 +1,6 @@
 #!/bin/bash
-if [ "$1" = "open" ];then
-xdg-open ${@:2}
-else
-/usr/bin/gio $@
+if [ "${1:-}" = "open" ]; then
+    shift
+    exec xdg-open "$@"
 fi
+exec /usr/bin/gio "$@"

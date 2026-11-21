@@ -1,0 +1,81 @@
+#!/bin/bash
+# =============================================================================
+# host-spawn —— 在主机上执行命令的兼容层（不依赖 flatpak / 预编译二进制）
+#
+# 旧版使用 Go 写的 host-spawn + Flatpak D-Bus portal（org.freedesktop.Flatpak）。
+# 现在改为调用主机的 systemd 用户实例（systemd-run --user），因此：
+#   * 不再需要 flatpak；
+#   * 不再需要按架构打包 host-spawn-* 二进制，APM 的 deb 是纯脚本、单包通全部架构。
+#
+# 用法与 host-spawn 兼容：
+#   host-spawn [选项] COMMAND [args...]
+# 选项：
+#   -env A,B        额外传给主机的环境变量（TERM 默认传递）
+#   -no-pty / -pty  兼容旧参数（systemd-run 的 stdio 行为足够覆盖常见场景）
+#   -version        显示版本
+# =============================================================================
+set -u
+
+env_names=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -env)
+            shift
+            [ $# -gt 0 ] || break
+            IFS=, read -ra _extra <<< "$1"
+            env_names+=("${_extra[@]}")
+            shift
+            ;;
+        -env=*)
+            IFS=, read -ra _extra <<< "${1#-env=}"
+            env_names+=("${_extra[@]}")
+            shift
+            ;;
+        -no-pty | -pty)
+            shift
+            ;;
+        -version | --version)
+            echo "host-spawn 2.0 (systemd-run bridge)"
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            echo "host-spawn: 未知选项: $1" >&2
+            exit 2
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+[ $# -gt 0 ] || set -- /bin/bash
+
+if ! command -v systemd-run >/dev/null 2>&1; then
+    echo "host-spawn: 找不到 systemd-run，无法在主机执行命令（需要 systemd 用户实例）" >&2
+    exit 127
+fi
+
+args=(systemd-run --user --quiet --wait --pipe --collect)
+
+# TERM 是 host-spawn 默认传递的变量
+if [ -n "${TERM:-}" ]; then
+    args+=(-E "TERM=$TERM")
+fi
+for _name in "${env_names[@]}"; do
+    [ -n "$_name" ] || continue
+    if [ -n "${!_name+x}" ]; then
+        args+=(-E "$_name=${!_name}")
+    fi
+done
+
+# 尽量保持工作目录；容器内独有的路径在主机不存在时回退到主机默认 cwd
+if [ -n "${PWD:-}" ] && [ -d "/host$PWD" ]; then
+    args+=(--working-directory="$PWD")
+fi
+
+# 关键：systemd-run 会在容器内解析可执行文件路径，所以用主机 /usr/bin/env
+# 让它走主机的 PATH（例如 fastfetch 只装在主机、base 里没有）。
+exec "${args[@]}" -- /usr/bin/env "$@"

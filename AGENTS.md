@@ -124,6 +124,10 @@ apm bwrap-run <包名> <命令>     # 使用 bwrap 运行
 运行环境由 `fuse-overlayfs`（base 层 + 应用层）与 `bwrap` 组成；overlay 挂载点位于
 `$XDG_RUNTIME_DIR/apm-run/<包名>`（没有 XDG_RUNTIME_DIR 时在 `/tmp`）。
 
+容器到主机的命令（`xdg-open`、`sudo`、`pkexec` 等）由 base 里的
+`amber-ce-tools/bin-override/host-spawn` 脚本转发到主机 `systemd-run --user`，
+不再需要 flatpak，也没有按架构的 host-spawn 二进制。
+
 ## 5. 本地软件安装（星火商店兼容）
 
 ```bash

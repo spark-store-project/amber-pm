@@ -1006,7 +1006,7 @@ open_deepin(){
 }
 
 open_ACE(){
-host-spawn xdg-open $@
+host-spawn xdg-open "$@"
 }
 
 open_other_sys(){
