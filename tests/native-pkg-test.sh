@@ -451,6 +451,10 @@ run_apm remove -y fake-app >/dev/null
 out="$(run_apm ssinstall "$REPO/pool/fake-app_2.0_all.deb")"
 assert_contains "ssinstall 校验并安装" "$out" "已按星火仓库校验"
 assert_file "$(state)/fake-app/files/core/opt/fake/version.txt" "ssinstall 安装文件存在"
+out="$(run_apm ssinstall fake-addon)"
+assert_contains "ssinstall 不需要 -y 也能安装" "$out" "安装 fake-addon"
+assert_not_contains "ssinstall 不询问确认" "$out" "是否继续"
+run_apm remove -y fake-addon >/dev/null
 
 # ===========================================================================
 # 10. download / clean / debug

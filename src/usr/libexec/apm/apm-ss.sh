@@ -95,11 +95,10 @@ apm_cmd_ssaudit() {
 }
 
 apm_cmd_ssinstall() {
-    local force_outside=0 assume_yes=0
+    local force_outside=0
     local -a targets=()
     while [ $# -gt 0 ]; do
         case "$1" in
-            -y | --yes) assume_yes=1 ;;
             --force-outside-paths | --force) force_outside=1 ;;
             --no-verify) APM_SS_NO_VERIFY=1 ;;
             -*) die "$(apm_t "未知选项: $1" "Unknown option: $1")" ;;
@@ -137,9 +136,8 @@ apm_cmd_ssinstall() {
             apm_install_deb "$t" "$pkg" 0 "$mode" "$force_outside" || return 1
         else
             # 与普通安装一致，但保留 --force-outside-paths
-            local -a args=()
+            local -a args=(-y)
             [ "$force_outside" = "1" ] && args+=(--force-outside-paths)
-            [ "$assume_yes" = "1" ] && args+=(-y)
             apm_cmd_install "${args[@]}" "$t" || return 1
         fi
     done
