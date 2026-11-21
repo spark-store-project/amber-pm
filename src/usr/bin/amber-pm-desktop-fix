@@ -89,6 +89,36 @@ ensure_dir "$ICON_TARGET_DIR"
 # environment generator, so desktop environments can find APM applications.
 APM_XDG_DATA_DIR="$APM_STATE_DIR/apm/files/ace-env/amber-ce-tools/data-dir"
 
+# 旧版 APM 可能在 /usr/local/share/icons 里留下
+# hicolor -> .../data-dir/icons//hicolor 这类链接。
+# 新版 data-dir/icons 指向 /usr/local/share/icons 后会形成符号链接环，
+# 这里在建立新链接前清理这种旧 APM 自引用链接。
+_cleanup_apm_data_dir_loops() {
+    local f target
+    if [ -L "$APM_XDG_DATA_DIR/applications" ] || [ ! -d "$APM_XDG_DATA_DIR/applications" ]; then
+        for f in "$APP_TARGET_DIR"/*; do
+            [ -L "$f" ] || continue
+            target="$(readlink -- "$f" 2>/dev/null || true)"
+            case "$target" in
+                *"/amber-ce-tools/data-dir/applications"* | *"$APM_XDG_DATA_DIR/applications"*)
+                    rm -f -- "$f" 2>/dev/null || true
+                    ;;
+            esac
+        done
+    fi
+    if [ -L "$APM_XDG_DATA_DIR/icons" ] || [ ! -d "$APM_XDG_DATA_DIR/icons" ]; then
+        for f in "$ICON_TARGET_DIR"/*; do
+            [ -L "$f" ] || continue
+            target="$(readlink -- "$f" 2>/dev/null || true)"
+            case "$target" in
+                *"/amber-ce-tools/data-dir/icons"* | *"$APM_XDG_DATA_DIR/icons"*)
+                    rm -f -- "$f" 2>/dev/null || true
+                    ;;
+            esac
+        done
+    fi
+}
+
 _link_apm_data_dir() { # name target
     local name="$1" target="$2"
     local link="$APM_XDG_DATA_DIR/$name"
@@ -99,6 +129,7 @@ _link_apm_data_dir() { # name target
 }
 
 if ensure_dir "$APM_XDG_DATA_DIR"; then
+    _cleanup_apm_data_dir_loops
     _link_apm_data_dir applications "$APP_TARGET_DIR"
     _link_apm_data_dir icons "$ICON_TARGET_DIR"
     for _shared_dir in mime pixmaps templates; do
