@@ -321,6 +321,7 @@ apm_repo_update() {
     rm -rf -- "$tmp"
     chmod 0644 -- "$APM_LISTS_DIR/$index_name" "$APM_PACKAGES_FILE" \
         "$APM_INRELEASE_FILE" "$APM_REPO_META" 2>/dev/null || true
+    declare -F apm_compat_legacy_paths >/dev/null 2>&1 && apm_compat_legacy_paths || true
     log.info "$(printf "$(apm_tk repo.index_updated "仓库索引已更新（%s 个软件包）" "Repository index updated (%s packages)")" "$count")"
 }
 

@@ -304,6 +304,49 @@ apm_state_writable() {
     [ -d "$APM_STATE_DIR" ] && [ -w "$APM_STATE_DIR" ]
 }
 
+# 旧版 amber-pm-convert 会把 desktop 的 Icon= 写成
+# /var/lib/apm/apm/files/ace-env/var/lib/apm/<pkg>/files/core/...
+# APM 2.0 的包实际在 /var/lib/apm/<pkg>/，这里为仍有旧 Icon 引用的包
+# 建兼容软链接，让主机桌面环境仍能解析旧绝对路径。
+apm_compat_legacy_paths() {
+    [ -n "${APM_ROOT:-}" ] || [ "$(id -u)" = "0" ] || return 0
+    local legacy="${APM_ROOT}/var/lib/apm/apm/files/ace-env/var/lib/apm"
+    local p target link need=0
+    local -a links=()
+    for p in $(apm_db_list 2>/dev/null); do
+        target="${APM_ROOT}/var/lib/apm/$p"
+        [ -d "$target" ] || continue
+        link="$legacy/$p"
+        # 不覆盖旧管理环境里真实存在的包目录
+        if [ ! -e "$link" ] || [ -L "$link" ]; then
+            if grep -rqs -- '^Icon=/var/lib/apm/apm/files/ace-env/var/lib/apm/' \
+                "$target/entries" 2>/dev/null; then
+                need=1
+                links+=("$p")
+            fi
+        fi
+    done
+    if [ "$need" = "0" ]; then
+        # 清理已经卸载包的旧链接
+        if [ -d "$legacy" ]; then
+            for link in "$legacy"/*; do
+                [ -L "$link" ] || continue
+                p="${link##*/}"
+                apm_db_installed "$p" || rm -f -- "$link" 2>/dev/null || true
+            done
+        fi
+        return 0
+    fi
+    mkdir -p "$legacy" 2>/dev/null || return 0
+    for p in "${links[@]}"; do
+        target="${APM_ROOT}/var/lib/apm/$p"
+        link="$legacy/$p"
+        if [ ! -e "$link" ] || [ -L "$link" ]; then
+            ln -sfn "$target" "$link" 2>/dev/null || true
+        fi
+    done
+}
+
 # ---------------------------------------------------------------------------
 # Debian 版本比较（等价 dpkg --compare-versions，纯 awk 实现）
 # 用法：apm_vercmp A B  ->  -1 / 0 / 1

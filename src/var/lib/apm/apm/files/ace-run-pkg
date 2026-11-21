@@ -41,7 +41,7 @@ ACE_BWRAP_SETENV=(
     --setenv PATH "$container_path"
     --setenv IS_ACE_ENV 1
     --setenv GTK_USE_PORTAL 1
-    --setenv XDG_DATA_DIRS "/amber-ce-tools/additional-data-dir-in-container:${XDG_DATA_DIRS:-}"
+    --setenv XDG_DATA_DIRS "/amber-ce-tools/additional-data-dir-in-container:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 )
 
 ACE_BWRAP_BINDS=(

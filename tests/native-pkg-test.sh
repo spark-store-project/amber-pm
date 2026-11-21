@@ -322,6 +322,8 @@ out="$(run_apm install -y fake-app)"
 assert_contains "安装 fake-app" "$out" "安装 fake-app 1.0"
 assert_contains "先安装依赖 fake-base" "$out" "安装 fake-base 1.0"
 assert_file "$(state)/fake-app/files/core/opt/fake/version.txt" "应用文件已安装"
+legacy_icon_link="$(state)/apm/files/ace-env/var/lib/apm/fake-app"
+assert_eq "旧版 Icon 路径已有兼容软链" "$ROOT/var/lib/apm/fake-app" "$(readlink "$legacy_icon_link")"
 assert_file "$(state)/fake-base/files/ace-env.tar.xz" "base 包 rootfs 保留（测试模式跳过 init）"
 assert_eq "数据库记录版本" "1.0" "$(run_apm show fake-app | awk '$1=="Version:"{print $2; exit}')"
 assert_eq "依赖包标记为 auto" "1" "$(awk '$1=="Auto:"{print $2}' "$(state)/apm-conf/db/fake-base/status")"
@@ -429,6 +431,8 @@ assert_contains "先卸载依赖方" "$out" "卸载 fake-app"
 assert_contains "再卸载 base" "$out" "卸载 fake-base"
 assert_no_file "$(state)/fake-app" "应用包目录已删除"
 assert_no_file "$(state)/fake-base" "base 目录已删除"
+[ -L "$legacy_icon_link" ] && echo "legacy link still exists: $legacy_icon_link" >&2
+assert_no_file "$(state)/apm/files/ace-env/var/lib/apm/fake-app" "旧版 Icon 兼容软链已清理"
 
 # 重新安装，验证 autoremove 仍能清理自动依赖
 run_apm install -y fake-app >/dev/null

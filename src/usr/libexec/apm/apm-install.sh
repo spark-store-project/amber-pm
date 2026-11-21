@@ -743,6 +743,8 @@ apm_remove_pkg() { # 包名 [force]
 
     # 包目录里的未跟踪内容（base rootfs、应用运行期写入）整体删除
     rm -rf -- "$pkgdir"
+    local legacy_link="${APM_ROOT}/var/lib/apm/apm/files/ace-env/var/lib/apm/${pkg}"
+    [ -L "$legacy_link" ] && rm -f -- "$legacy_link" 2>/dev/null || true
 
     # addons 登记文件所在目录若为空则删除
     local d
@@ -1230,6 +1232,7 @@ apm_cmd_clean() {
 # ---------------------------------------------------------------------------
 apm_run_triggers() { # [remove]
     local mode="${1:-all}"
+    declare -F apm_compat_legacy_paths >/dev/null 2>&1 && apm_compat_legacy_paths || true
     [ "$APM_NO_TRIGGERS" = "1" ] && return 0
     if [ -n "$APM_ROOT" ]; then
         log.debug "测试模式：跳过安装后集成动作"
