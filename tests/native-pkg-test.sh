@@ -286,6 +286,9 @@ assert_contains "读取 aptss 服务配置" "$out" "获取星火服务配置"
 assert_contains "索引更新完成" "$out" "仓库索引已更新"
 assert_file "$(state)/apm-conf/lists/Packages" "索引文件已保存"
 assert_file "$SPARK/apt-fast.conf" "服务配置已缓存"
+assert_eq "Packages 对普通用户可读" "644" "$(stat -c %a "$(state)/apm-conf/lists/Packages")"
+assert_eq "aptss.list 对普通用户可读" "644" "$(stat -c %a "$(state)/apm-conf/lists/aptss.list")"
+assert_eq "apt-fast.conf 对普通用户可读" "644" "$(stat -c %a "$(state)/apm-conf/lists/apt-fast.conf")"
 out="$(LANGUAGE=de APM_TEST_LANG=auto run_apm update)"
 assert_contains "德语环境更新提示" "$out" "Repository-Index"
 
@@ -483,7 +486,11 @@ assert_no_file "$(state)/fake-app" "ssinstall 失败后未安装"
 # ===========================================================================
 # 10. download / clean / debug
 # ===========================================================================
-( cd "$WORK" && run_apm download fake-app >/dev/null ) || true
+rm -f "$WORK/fake-app_2.0_all.deb"
+out="$( cd "$WORK" && run_apm download --dry-run --print-uris fake-app )"
+assert_contains "download --print-uris 输出 URL" "$out" "fake-app_2.0_all.deb"
+assert_no_file "$WORK/fake-app_2.0_all.deb" "download --dry-run 不写文件"
+out="$( cd "$WORK" && run_apm download fake-app 2>/dev/null )" || true
 assert_file "$WORK/fake-app_2.0_all.deb" "download 下载到当前目录"
 run_apm clean >/dev/null
 assert_eq "clean 后缓存为空" "0" "$(find "$(state)/apm-conf/cache" -name '*.deb' 2>/dev/null | wc -l)"

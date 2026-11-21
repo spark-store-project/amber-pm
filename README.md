@@ -123,6 +123,8 @@ Commands:
 - aria2 is a package dependency. The downloader prefers aria2c and keeps a curl
   fallback for environments where aria2c is unavailable. Use
   `APM_DOWNLOAD_ENGINE=curl` to force curl.
+- `apm download` supports `--dry-run` (show what would be downloaded) and
+  `--print-uris` (print URL, destination, and size without downloading).
 - `apm remove` resolves the reverse-dependency closure and removes dependents
   before the package they depend on.
 - Removing an application cleans `/var/lib/apm/<pkg>` and every user's

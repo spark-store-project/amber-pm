@@ -142,7 +142,10 @@ apm_aptss_list_lookup() { # [--refresh]
             return 1
         fi
     fi
-    [ -s "$APM_REPO_LIST_FILE" ] || return 1
+    if [ ! -s "$APM_REPO_LIST_FILE" ] || [ ! -r "$APM_REPO_LIST_FILE" ]; then
+        log.debug "无权读取 $APM_REPO_LIST_FILE，回退到 repo.meta/默认仓库地址"
+        return 1
+    fi
     awk '
         /^deb[[:space:]]/ {
             for (i = 1; i <= NF; i++) {
@@ -316,11 +319,17 @@ apm_repo_update() {
 
     trap - EXIT
     rm -rf -- "$tmp"
+    chmod 0644 -- "$APM_LISTS_DIR/$index_name" "$APM_PACKAGES_FILE" \
+        "$APM_INRELEASE_FILE" "$APM_REPO_META" 2>/dev/null || true
     log.info "$(printf "$(apm_tk repo.index_updated "仓库索引已更新（%s 个软件包）" "Repository index updated (%s packages)")" "$count")"
 }
 
 # 索引不存在时自动拉取一次（类似 aptss 首次使用自动 update）
 apm_repo_ensure() {
+    if [ -e "$APM_PACKAGES_FILE" ] && [ ! -r "$APM_PACKAGES_FILE" ]; then
+        log.warn "$(apm_t "仓库索引不可读，请运行 sudo apm update 修复权限" "Repository index is not readable; run sudo apm update to repair permissions")"
+        return 1
+    fi
     if [ ! -s "$APM_PACKAGES_FILE" ]; then
         log.info "$(apm_tk repo.fetching "本地没有仓库索引，正在获取..." "No local repository index; fetching...")"
         apm_repo_update
@@ -328,7 +337,7 @@ apm_repo_ensure() {
 }
 
 apm_repo_has_pkg() {
-    [ -s "$APM_PACKAGES_FILE" ] || return 1
+    [ -s "$APM_PACKAGES_FILE" ] && [ -r "$APM_PACKAGES_FILE" ] || return 1
     awk -v p="$1" 'BEGIN{RS="";FS="\n"} {
         for (i = 1; i <= NF; i++) if ($i == "Package: " p) { found = 1; exit }
     } END { exit found ? 0 : 1 }' "$APM_PACKAGES_FILE"
@@ -336,7 +345,7 @@ apm_repo_has_pkg() {
 
 # 取字段值（自动拼接续行）
 apm_repo_field() { # pkg field
-    [ -s "$APM_PACKAGES_FILE" ] || return 1
+    [ -s "$APM_PACKAGES_FILE" ] && [ -r "$APM_PACKAGES_FILE" ] || return 1
     awk -v p="$1" -v f="$2" '
         BEGIN { RS = ""; FS = "\n" }
         {
@@ -380,7 +389,7 @@ apm_repo_pkg_url() { # pkg
 }
 
 apm_repo_names() {
-    [ -s "$APM_PACKAGES_FILE" ] || return 0
+    [ -s "$APM_PACKAGES_FILE" ] && [ -r "$APM_PACKAGES_FILE" ] || return 0
     awk 'BEGIN{RS="";FS="\n"} {
         for (i = 1; i <= NF; i++) if ($i ~ /^Package: /) { print substr($i, 10); break }
     }' "$APM_PACKAGES_FILE" | sort -u
@@ -388,6 +397,7 @@ apm_repo_names() {
 
 # 完整 stanza（用于 apm show）
 apm_repo_stanza() {
+    [ -s "$APM_PACKAGES_FILE" ] && [ -r "$APM_PACKAGES_FILE" ] || return 0
     awk -v p="$1" 'BEGIN{RS="";FS="\n"} {
         for (i = 1; i <= NF; i++) if ($i == "Package: " p) { print; exit }
     }' "$APM_PACKAGES_FILE"
@@ -395,6 +405,7 @@ apm_repo_stanza() {
 
 # 搜索（名称或描述，忽略大小写）
 apm_repo_search() {
+    [ -r "$APM_PACKAGES_FILE" ] || return 1
     local kw
     kw="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
     awk -v kw="$kw" 'BEGIN{RS="";FS="\n";ORS="\n\n"} {
@@ -405,6 +416,7 @@ apm_repo_search() {
 
 # 反向依赖：哪些包依赖 pkg
 apm_repo_rdepends() {
+    [ -r "$APM_PACKAGES_FILE" ] || return 0
     awk -v p="$1" 'BEGIN{RS="";FS="\n"} {
         name = ""; dep = ""
         for (i = 1; i <= NF; i++) {

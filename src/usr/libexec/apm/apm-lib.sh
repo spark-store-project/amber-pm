@@ -290,6 +290,13 @@ apm_state_init() {
     APM_REPO_META="$APM_LISTS_DIR/repo.meta"
     mkdir -p "$APM_DB_DIR" "$APM_LISTS_DIR" "$APM_CACHE_DIR" 2>/dev/null ||
         die "$(apm_t "无法创建 APM 数据目录: $APM_CONF_DIR" "Cannot create APM data directory: $APM_CONF_DIR")"
+    # 元数据要让普通用户也能读；root 下顺手修正旧版本留下的 0600 文件
+    chmod 0755 "$APM_STATE_DIR" "$APM_CONF_DIR" "$APM_DB_DIR" "$APM_LISTS_DIR" "$APM_CACHE_DIR" 2>/dev/null || true
+    local f
+    for f in "$APM_REPO_LIST_FILE" "$APM_APTFAST_CONF" "$APM_INRELEASE_FILE" \
+        "$APM_PACKAGES_FILE" "$APM_REPO_META"; do
+        [ -e "$f" ] && chmod 0644 -- "$f" 2>/dev/null || true
+    done
 }
 
 # 判断目录是否属于当前用户可写（APM_ROOT 测试场景用）
@@ -724,6 +731,8 @@ apm_http_get() { # url dest
         rm -f -- "$tmp"
         return 1
     fi
+    # mktemp 默认 0600；仓库元数据需要让非 root 的 apm list/download 读取
+    chmod 0644 -- "$tmp" 2>/dev/null || true
     mv -f -- "$tmp" "$dest"
 }
 

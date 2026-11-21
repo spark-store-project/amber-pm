@@ -100,6 +100,8 @@ Commands:
   没有 TTY 或设置 `APM_NO_PROGRESS=1` 时退回普通日志。
 - aria2 已是包依赖；下载器优先 aria2c，代码仍保留没有 aria2c 时的 curl 兜底。
   也可用 `APM_DOWNLOAD_ENGINE=curl` 强制 curl。
+- `apm download` 支持 `--dry-run`（只显示将下载什么）和 `--print-uris`
+  （输出 URL、目标路径和大小，不下载）。
 - `apm remove` 会计算反向依赖闭包，按“依赖方先删”的顺序卸载。
 - 卸载单个应用会清理 `/var/lib/apm/<包名>` 与所有用户的 `~/.apm/<包名>`；
   卸载 APM 本身会一并删除 `/var/lib/apm` 下的全部应用和 `~/.apm`。

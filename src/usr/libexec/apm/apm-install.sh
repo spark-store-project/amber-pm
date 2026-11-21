@@ -993,7 +993,7 @@ apm_cmd_list() {
 
     local repo have_index=0
     repo="$(apm_repo_dir_name)"
-    [ -s "$APM_PACKAGES_FILE" ] && have_index=1
+    [ -s "$APM_PACKAGES_FILE" ] && [ -r "$APM_PACKAGES_FILE" ] && have_index=1
     if [ "$have_index" = "0" ] && [ "$mode" != "installed" ] && [ "$mode" != "manual" ]; then
         log.warn "$(apm_t "本地还没有仓库索引，仅列出已安装的软件包（sudo apm update 可获取索引）" "No local repository index; listing installed packages only (run sudo apm update to fetch the index)")"
     fi
@@ -1067,7 +1067,7 @@ apm_cmd_search() {
     repo="$(apm_repo_dir_name)"
 
     # 一次 awk 扫描仓库索引并直接输出结果，避免“先输出完整 stanza、再解析一遍”
-    if [ -s "$APM_PACKAGES_FILE" ]; then
+    if [ -s "$APM_PACKAGES_FILE" ] && [ -r "$APM_PACKAGES_FILE" ]; then
         awk -v kw="$kw" -v repo="$repo" '
             BEGIN { RS = ""; FS = "\n"; kw = tolower(kw) }
             {
@@ -1169,24 +1169,46 @@ apm_cmd_rdepends() {
 }
 
 apm_cmd_download() {
-    local dir="."
-    [ $# -gt 0 ] || die "$(apm_t "请指定软件包" "Please specify package(s)")"
+    local dir="." dry_run=0 print_uris=0
+    local -a packages=()
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --dry-run | -s | --simulate) dry_run=1 ;;
+            --print-uris | --print-uri) print_uris=1 ;;
+            --directory=*) dir="${1#*=}" ;;
+            --) shift; while [ $# -gt 0 ]; do packages+=("$1"); shift; done; break ;;
+            -*) die "$(apm_t "未知选项: $1" "Unknown option: $1")" ;;
+            *) packages+=("$1") ;;
+        esac
+        shift
+    done
+    [ ${#packages[@]} -gt 0 ] || die "$(apm_t "请指定软件包" "Please specify package(s)")"
     apm_repo_ensure || return 1
-    APM_DL_TASK_TOTAL="${#}"
+
+    APM_DL_TASK_TOTAL="${#packages[@]}"
     [ "$APM_DL_TASK_TOTAL" -ge 1 ] 2>/dev/null || APM_DL_TASK_TOTAL=1
     local p
-    for p in "$@"; do
-        local fn dest
+    for p in "${packages[@]}"; do
+        local fn dest url
         fn="$(apm_repo_filename "$p")"
         [ -n "$fn" ] || {
             log.error "$(apm_t "仓库里没有 $p" "Package not found in repository: $p")"
             return 1
         }
         dest="$dir/$(basename "$fn")"
+        url="$(apm_repo_pkg_url "$p")"
+        if [ "$print_uris" = "1" ]; then
+            printf "'%s' %s %s\n" "$url" "$dest" "$(apm_repo_size "$p")"
+            continue
+        fi
+        if [ "$dry_run" = "1" ]; then
+            log.info "$(apm_t "将下载 $p -> $dest" "Would download $p -> $dest")"
+            continue
+        fi
         if ! _apm_dl_progress_enabled; then
             log.info "$(apm_t "下载 $p -> $dest" "Downloading $p -> $dest")"
         fi
-        apm_download_one "$(apm_repo_pkg_url "$p")" "$dest" "$p" "$(apm_repo_size "$p")" || return 1
+        apm_download_one "$url" "$dest" "$p" "$(apm_repo_size "$p")" || return 1
     done
 }
 
