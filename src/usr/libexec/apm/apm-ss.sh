@@ -63,12 +63,12 @@ apm_cmd_ssaudit() {
     local -a targets=()
     while [ $# -gt 0 ]; do
         case "$1" in
-            -*) die "未知选项: $1" ;;
+            -*) die "$(apm_t "未知选项: $1" "Unknown option: $1")" ;;
             *) targets+=("$1") ;;
         esac
         shift
     done
-    [ ${#targets[@]} -gt 0 ] || die "用法: apm ssaudit <包名|deb路径>"
+    [ ${#targets[@]} -gt 0 ] || die "$(apm_t "用法: apm ssaudit <包名|deb路径>" "Usage: apm ssaudit <package|deb path>")"
 
     apm_state_init
     apm_repo_ensure
@@ -86,7 +86,7 @@ apm_cmd_ssaudit() {
             if apm_repo_has_pkg "$t"; then
                 log.info "[校验通过] $t $(apm_repo_version "$t")（星火仓库: $(apm_repo_filename "$t")）"
             else
-                log.error "[校验失败] 仓库中不存在: $t"
+                log.error "$(apm_t "[校验失败] 仓库中不存在: $t" "[FAILED] Not found in repository: $t")"
                 rc=1
             fi
         fi
@@ -102,12 +102,12 @@ apm_cmd_ssinstall() {
             -y | --yes) ;;
             --force-outside-paths | --force) force_outside=1 ;;
             --no-verify) APM_SS_NO_VERIFY=1 ;;
-            -*) die "未知选项: $1" ;;
+            -*) die "$(apm_t "未知选项: $1" "Unknown option: $1")" ;;
             *) targets+=("$1") ;;
         esac
         shift
     done
-    [ ${#targets[@]} -gt 0 ] || die "用法: apm ssinstall <包名|deb路径>"
+    [ ${#targets[@]} -gt 0 ] || die "$(apm_t "用法: apm ssinstall <包名|deb路径>" "Usage: apm ssinstall <package|deb path>")"
 
     apm_require_root
     apm_state_init
@@ -118,8 +118,8 @@ apm_cmd_ssinstall() {
         if [ -f "$t" ]; then
             if [ "${APM_SS_NO_VERIFY:-0}" != "1" ]; then
                 result="$(apm_ss_verify_deb "$t")" || {
-                    log.error "校验失败，已拒绝安装: ${result#fail }"
-                    log.error "如确认文件可信，可用 --no-verify 跳过校验"
+                    log.error "$(apm_t "校验失败，已拒绝安装: ${result#fail }" "Verification failed; installation refused: ${result#fail }")"
+                    log.error "$(apm_t "如确认文件可信，可用 --no-verify 跳过校验" "If you trust the file, use --no-verify to skip verification")"
                     return 1
                 }
                 log.info "已按星火仓库校验 $(basename "$t")（${result#ok }）"
@@ -128,7 +128,7 @@ apm_cmd_ssinstall() {
             pkg="$(apm_deb_control_field "$t" Package)"
             deps="$(apm_deb_control_field "$t" Depends)"
             [ -n "$pkg" ] || {
-                log.error "无法读取包名: $t"
+                log.error "$(apm_t "无法读取包名: $t" "Cannot read package name: $t")"
                 return 1
             }
             apm_install_dep_string "$deps" 1 || return 1

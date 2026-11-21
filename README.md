@@ -36,7 +36,7 @@ APM 目前提供 Debian 12/13 与 deepin 25 基础环境，支持将适配以上
 
 ## 使用方法
 ```
-APM - Amber Package Manager 2.0.0~beta3
+APM - Amber Package Manager 2.0.0~beta4
 
 Usage:
   apm [COMMAND] [OPTIONS] [PACKAGES...]
@@ -94,6 +94,8 @@ Commands:
   需要显式确认（高风险）。
 - 卸载单个应用会清理 `/var/lib/apm/<包名>` 与所有用户的 `~/.apm/<包名>`；
   卸载 APM 本身会一并删除 `/var/lib/apm` 下的全部应用和 `~/.apm`。
+- 输出语言跟随 `LC_ALL/LC_MESSAGES/LANG`（中文环境中文，其它默认英文），也可用
+  `APM_LANG=zh|en` 强制指定。
 - `apm debug` 只输出主机与 APM 的调试信息，不再进入交互环境。
 - 旧版管理环境（`/var/lib/apm/apm/files/ace-env`）中的软件包可用 `sudo apm migrate` 迁移。
 - 仓库与 .deb 格式未变：Debian 系宿主上的 `apt`/`aptss` 仍可直接安装 APM 包，

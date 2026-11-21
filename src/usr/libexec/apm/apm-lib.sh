@@ -53,6 +53,32 @@ APM_MAXRETRY=2
 APM_MAXNUM=5
 APM_MAXCONPERSRV=1
 
+# ---------------------------------------------------------------------------
+# 多语言：APM_LANG=auto|zh|en
+# auto 根据 LC_ALL / LC_MESSAGES / LANG 判断；非中文环境默认英文。
+# ---------------------------------------------------------------------------
+APM_LANG="${APM_LANG:-auto}"
+if [ "$APM_LANG" = "auto" ]; then
+    case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in
+        zh*) APM_LANG=zh ;;
+        *) APM_LANG=en ;;
+    esac
+fi
+case "$APM_LANG" in
+    zh*) APM_LANG=zh ;;
+    *) APM_LANG=en ;;
+esac
+apm_is_zh() { [ "$APM_LANG" = "zh" ]; }
+# apm_t "中文" "English"
+apm_t() {
+    if [ "$APM_LANG" = "zh" ]; then
+        printf '%s' "$1"
+    else
+        printf '%s' "$2"
+    fi
+}
+export APM_LANG
+
 # 日志：输出到 stderr（stdout 留给数据），非终端时去掉颜色
 _APM_LOG_COLOR=0
 [ -t 2 ] && _APM_LOG_COLOR=1
@@ -124,13 +150,13 @@ apm_require_root() {
     # APM_ROOT 重定向模式用于测试/离线验证，不对 root 做要求
     [ -n "${APM_ROOT:-}" ] && return 0
     if [ "$(id -u)" != "0" ]; then
-        die "需要 root 权限，请使用 sudo apm ..."
+        die "$(apm_t "需要 root 权限，请使用 sudo apm ..." "Root privileges required; use: sudo apm ...")"
     fi
 }
 
 apm_state_init() {
     mkdir -p "$APM_STATE_DIR" "$APM_CONF_DIR" 2>/dev/null ||
-        die "无法创建 APM 数据目录: $APM_STATE_DIR"
+        die "$(apm_t "无法创建 APM 数据目录: $APM_STATE_DIR" "Cannot create APM data directory: $APM_STATE_DIR")"
 
     # 早期 2.0.x：db/lists/cache 曾直接放在 /var/lib/apm 下
     local sub
@@ -150,7 +176,7 @@ apm_state_init() {
     APM_PACKAGES_FILE="$APM_LISTS_DIR/Packages"
     APM_REPO_META="$APM_LISTS_DIR/repo.meta"
     mkdir -p "$APM_DB_DIR" "$APM_LISTS_DIR" "$APM_CACHE_DIR" 2>/dev/null ||
-        die "无法创建 APM 数据目录: $APM_CONF_DIR"
+        die "$(apm_t "无法创建 APM 数据目录: $APM_CONF_DIR" "Cannot create APM data directory: $APM_CONF_DIR")"
 }
 
 # 判断目录是否属于当前用户可写（APM_ROOT 测试场景用）
@@ -303,7 +329,7 @@ apm_download_one() { # url dest
             err="$(tail -n 2 "$log" 2>/dev/null | tr '\n' ' ')"
         fi
         [ "$log" != "/dev/null" ] && rm -f -- "$log"
-        log.warn "aria2c 下载失败（rc=$rc），改用 curl 单线程下载: ${err:-未知错误}"
+        log.warn "$(apm_t "aria2c 下载失败（rc=$rc），改用 curl 单线程下载: ${err:-未知错误}" "aria2c download failed (rc=$rc); falling back to single-thread curl: ${err:-unknown error}")"
     fi
 
     curl -fL --retry "${APM_MAXRETRY:-2}" --connect-timeout 30 --max-time 0 \

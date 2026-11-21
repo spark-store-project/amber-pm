@@ -22,7 +22,8 @@ done
 
 # 帮助信息函数
 show_help() {
-    cat <<EOF
+    if apm_is_zh; then
+        cat <<EOF
 APM - Amber Package Manager ${VERSION}
 
 Usage:
@@ -31,12 +32,12 @@ Usage:
 Commands:
   install <包>...        安装软件包（也支持本地 .deb 路径）
   reinstall <包>...      重新安装
-  remove <包>...         卸载软件包
+  remove <包>...         卸载软件包（会连同依赖它的已安装包一起卸载，并询问确认）
   autoremove [<包>...]   自动卸载不再需要的依赖（可同时卸载指定包）
   update                 更新仓库索引（含星火服务配置）
   upgrade                升级所有可升级的软件包
   hold / unhold <包>...  锁定 / 解锁软件包版本
-  list                   查看已安装软件包
+  list                   查看软件包
   search <关键词>        搜索软件包
   show <包>...           展示包信息
   policy <包>...         查看已安装/候选版本
@@ -66,11 +67,56 @@ Commands:
 
                                             本 APM 具有兔兔伯爵，女武神装甲和超级大运之力。
 EOF
+    else
+        cat <<EOF
+APM - Amber Package Manager ${VERSION}
+
+Usage:
+  $SCRIPT_NAME [COMMAND] [OPTIONS] [PACKAGES...]
+
+Commands:
+  install <pkg>...        Install packages (also accepts local .deb paths)
+  reinstall <pkg>...      Reinstall packages
+  remove <pkg>...         Remove packages (removes packages depending on them too, after confirmation)
+  autoremove [<pkg>...]   Remove no-longer-needed dependencies (optionally with extra packages)
+  update                  Refresh repository index (including Spark service config)
+  upgrade                 Upgrade all upgradable packages
+  hold / unhold <pkg>...  Hold / unhold package versions
+  list                    List packages
+  search <keyword>        Search packages
+  show <pkg>...           Show package information
+  policy <pkg>...         Show installed/candidate versions
+  depends / rdepends <pkg>...  Show dependencies / reverse dependencies
+  download <pkg>...       Download packages to the current directory
+  clean                   Clean download cache
+  migrate                 Migrate from the legacy management environment
+  debug                   Print host and APM diagnostic information
+
+  launch <package> [args...]        Launch a package via the app launcher
+  run <package> [EXEC_PATH] [args...]  Run a command inside a package environment
+  sandbox-run <package> [EXEC_PATH] [args...]  Run with a sandboxed HOME
+  bwrap-run <package> [EXEC_PATH] [args...]    Run with bwrap
+  ssinstall <pkg|deb>     Verify against the Spark store and install
+  ssaudit <pkg|deb>       Verify against the Spark store only
+
+  install options:
+    --force-outside-paths  Allow writing outside the package directory (risky; refused by default)
+
+  amber / xmp360 / bronya   Easter eggs
+
+  -h, --help        Show this help
+  --help-all        Show full help
+  -v, --version     Show APM version
+
+                                            This APM has Count Bunny, Valkyrie armor and Super Truck power.
+EOF
+    fi
 }
 
 show_help_all() {
     show_help
-    cat <<EOF
+    if apm_is_zh; then
+        cat <<EOF
 
 说明:
   APM 的包管理已改为原生实现：直接从星火 APM 仓库（apt 兼容格式）获取索引，
@@ -78,13 +124,35 @@ show_help_all() {
   软件包仍然安装在 /var/lib/apm/<包名>/，运行方式（overlay + bwrap）不变。
 
   * 安装需要 root：sudo apm install <包>
-  * 包默认只能写自己的目录；try 写别处时会被拒绝，确认可信可用
+  * remove 会先计算依赖闭包，按“依赖方先删”的顺序执行，并询问 y/n；
+    -y 可跳过确认
+  * 包默认只能写自己的目录；写入别处会被拒绝，确认可信可用
     --force-outside-paths 强制安装
   * 版本锁定（hold）后，apm upgrade 会跳过该包
   * 旧版（1.3.x）用户请先执行 sudo apm migrate 迁移已安装的包
 
   调试: APM_DEBUG=1 输出调试日志；APM_ROOT=<目录> 可把数据目录重定向到测试目录
 EOF
+    else
+        cat <<EOF
+
+Notes:
+  APM now uses a native package manager: it fetches and verifies the apt-style
+  Spark APM repository index and unpacks packages itself, without apt/dpkg or a
+  bundled management rootfs. Packages still live in /var/lib/apm/<name>/ and
+  are run with the same overlay + bwrap mechanism.
+
+  * Installation requires root: sudo apm install <package>
+  * remove resolves the dependency closure, removes dependents first, and asks
+    for y/n confirmation; use -y to skip the prompt
+  * Packages may only write their own directory by default; writing elsewhere
+    is refused unless --force-outside-paths is given
+  * Held packages are skipped by apm upgrade
+  * Users upgrading from 1.3.x should run: sudo apm migrate
+
+  Debug: APM_DEBUG=1 for debug logs; APM_ROOT=<dir> redirects the data directory.
+EOF
+    fi
 }
 
 # =============================================================================

@@ -96,7 +96,7 @@ NUR 仓库中的示例：
     src = pkgs.fetchFromGitHub {
       owner = "amber-ce";
       repo = "amber-pm";
-      rev = "v2.0.0-beta3";
+      rev = "v2.0.0-beta4";
       hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
     };
   };

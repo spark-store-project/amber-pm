@@ -113,7 +113,7 @@ _apm_resolve_dep_item() { # 依赖项
             fi
         fi
     done
-    log.error "无法满足依赖: $item"
+    log.error "$(apm_t "无法满足依赖: $item" "Unable to satisfy dependency: $item")"
     _APM_RESOLVE_FAILED=1
     return 1
 }
@@ -175,7 +175,7 @@ apm_fetch_deb() { # 包名 -> 本地 deb 路径
     local fn sha dest
     fn="$(apm_repo_filename "$pkg")"
     [ -n "$fn" ] || {
-        log.error "仓库里没有 $pkg"
+        log.error "$(apm_t "仓库里没有 $pkg" "Package not found in repository: $pkg")"
         return 1
     }
     sha="$(apm_repo_sha256 "$pkg")"
@@ -195,7 +195,7 @@ apm_fetch_deb() { # 包名 -> 本地 deb 路径
     local url
     url="$(apm_repo_pkg_url "$pkg")"
     apm_download_one "$url" "$dest" || {
-        log.error "下载失败: $url"
+        log.error "$(apm_t "下载失败: $url" "Download failed: $url")"
         return 1
     }
     if [ -n "$sha" ]; then
@@ -203,7 +203,7 @@ apm_fetch_deb() { # 包名 -> 本地 deb 路径
         actual="$(sha256sum "$dest" | cut -d' ' -f1)"
         if [ "$actual" != "$sha" ]; then
             rm -f -- "$dest"
-            log.error "$pkg 的 SHA256 校验失败"
+            log.error "$(apm_t "$pkg 的 SHA256 校验失败" "SHA256 verification failed for $pkg")"
             return 1
         fi
     fi
@@ -221,7 +221,7 @@ apm_base_init() { # 包名
 
     if [ ! -x "$init" ]; then
         if [ -f "$tarxz" ]; then
-            log.error "$pkg 是 base 包但缺少 files/bin/ace-init，无法初始化环境"
+            log.error "$(apm_t "$pkg 是 base 包但缺少 files/bin/ace-init，无法初始化环境" "$pkg is a base package but is missing files/bin/ace-init; cannot initialize environment")"
             return 1
         fi
         return 0
@@ -229,17 +229,17 @@ apm_base_init() { # 包名
 
     if [ "$(id -u)" != "0" ] ||
        { [ -n "$APM_ROOT" ] && [ "${APM_BASE_INIT_FORCE:-0}" != "1" ]; }; then
-        log.warn "非 root/测试模式：跳过 base 环境初始化（$pkg）"
+        log.warn "$(apm_t "非 root/测试模式：跳过 base 环境初始化（$pkg）" "Non-root/test mode: skipping base environment initialization ($pkg)")"
         return 0
     fi
 
-    log.info "正在初始化 base 环境 $pkg（解压 rootfs 可能需要几分钟）..."
+    log.info "$(apm_t "正在初始化 base 环境 $pkg（解压 rootfs 可能需要几分钟）..." "Initializing base environment $pkg (extracting rootfs may take a few minutes)...")"
     if PACKAGE_NAME="$pkg" "$init"; then
         rm -f -- "$tarxz"
-        log.info "base 环境 $pkg 初始化完成"
+        log.info "$(apm_t "base 环境 $pkg 初始化完成" "Base environment $pkg initialized")"
         return 0
     fi
-    log.error "base 环境 $pkg 初始化失败（可重试: apm install --reinstall $pkg）"
+    log.error "$(apm_t "base 环境 $pkg 初始化失败（可重试: apm install --reinstall $pkg）" "Failed to initialize base environment $pkg (retry: apm install --reinstall $pkg)")"
     return 1
 }
 
@@ -289,13 +289,13 @@ apm_install_deb() {
     local force_outside="${5:-0}"
 
     [ -f "$deb" ] || {
-        log.error "deb 不存在: $deb"
+        log.error "$(apm_t "deb 不存在: $deb" "deb not found: $deb")"
         return 1
     }
     local version arch depends isize staging listfile violations ctl_pkg
     ctl_pkg="$(apm_deb_control_field "$deb" Package)"
     if [ -n "$ctl_pkg" ] && [ "$ctl_pkg" != "$pkg" ]; then
-        log.error "deb 内包名（$ctl_pkg）与请求的包名（$pkg）不一致"
+        log.error "$(apm_t "deb 内包名（$ctl_pkg）与请求的包名（$pkg）不一致" "Package name in deb ($ctl_pkg) does not match requested package ($pkg)")"
         return 1
     fi
     version="$(apm_deb_control_field "$deb" Version)"
@@ -303,31 +303,31 @@ apm_install_deb() {
     depends="$(apm_deb_control_field "$deb" Depends)"
     isize="$(apm_deb_control_field "$deb" Installed-Size)"
     [ -n "$version" ] || {
-        log.error "$pkg: 无法读取版本号"
+        log.error "$(apm_t "$pkg: 无法读取版本号" "$pkg: cannot read version")"
         return 1
     }
 
     staging="$(mktemp -d "$APM_STATE_DIR/.stage.XXXXXX" 2>/dev/null)" || {
-        log.error "无法创建临时目录"
+        log.error "$(apm_t "无法创建临时目录" "Unable to create temporary directory")"
         return 1
     }
     listfile="${staging}.list"
     violations="$(apm_deb_stage_payload "$deb" "$pkg" "$staging" "$listfile")" || {
         rm -rf -- "$staging" "$listfile"
-        log.error "$pkg: deb 解包失败"
+        log.error "$(apm_t "$pkg: deb 解包失败" "$pkg: failed to unpack deb")"
         return 1
     }
 
     if [ -n "$violations" ]; then
         if [ "$force_outside" != "1" ]; then
-            log.error "$pkg 试图写入包目录之外的位置，已拒绝安装："
+            log.error "$(apm_t "$pkg 试图写入包目录之外的位置，已拒绝安装：" "$pkg tried to write outside its package directory; installation refused:")"
             printf '%s\n' "$violations" | head -n 20 | sed 's/^/    /' >&2
             printf '%s\n' "$violations" | wc -l | awk '{ if ($1 > 20) print "    ...（共 " $1 " 个）" }' >&2
-            log.error "确认可信后可用 --force-outside-paths 强制安装"
+            log.error "$(apm_t "确认可信后可用 --force-outside-paths 强制安装" "If you trust it, use --force-outside-paths to install")"
             rm -rf -- "$staging" "$listfile"
             return 1
         fi
-        log.warn "$pkg 将写入包目录之外的位置（--force-outside-paths 已启用）："
+        log.warn "$(apm_t "$pkg 将写入包目录之外的位置（--force-outside-paths 已启用）：" "$pkg will write outside its package directory (--force-outside-paths enabled):")"
         printf '%s\n' "$violations" | head -n 20 | sed 's/^/    /' >&2
     fi
 
@@ -340,9 +340,9 @@ apm_install_deb() {
     local old_version=""
     apm_db_installed "$pkg" && old_version="$(apm_db_version "$pkg")"
 
-    log.info "安装 $pkg $version"
+    log.info "$(apm_t "安装 $pkg $version" "Installing $pkg $version")"
     _apm_apply_staging "$staging" || {
-        log.error "$pkg: 写入文件失败"
+        log.error "$(apm_t "$pkg: 写入文件失败" "$pkg: failed to write files")"
         rm -rf -- "$staging" "$listfile"
         return 1
     }
@@ -364,7 +364,7 @@ apm_install_deb() {
     local sha=""
     sha="$(sha256sum "$deb" | cut -d' ' -f1)"
     apm_db_write_status "$pkg" "$version" "$arch" "$depends" "$isize" "$(basename "$deb")" "$sha" "$auto" "0" ||
-        log.warn "$pkg: 写入数据库失败"
+        log.warn "$(apm_t "$pkg: 写入数据库失败" "$pkg: failed to write database")"
     apm_db_write_files "$pkg" "$listfile"
 
     rm -rf -- "$staging" "$listfile"
@@ -395,7 +395,7 @@ apm_install_one_target() { # 包名 auto
     local version
     version="$(apm_repo_version "$pkg")"
     [ -n "$version" ] || {
-        log.error "仓库里没有 $pkg"
+        log.error "$(apm_t "仓库里没有 $pkg" "Package not found in repository: $pkg")"
         return 1
     }
     local inst_version inst
@@ -408,20 +408,20 @@ apm_install_one_target() { # 包名 auto
         inst="$(apm_vercmp "$inst_version" "$version")"
         if [ "$inst" = "0" ]; then
             if [ "${APM_REINSTALL:-0}" = "1" ]; then
-                log.info "$pkg: 重新安装 $version"
+                log.info "$(apm_t "$pkg: 重新安装 $version" "$pkg: reinstalling $version")"
                 local deb
                 deb="$(apm_fetch_deb "$pkg")" || return 1
                 apm_install_deb "$deb" "$pkg" "$auto" reinstall "$APM_FORCE_OUTSIDE"
                 return $?
             fi
-            log.info "$pkg 已是最新版本（$version），跳过"
+            log.info "$(apm_t "$pkg 已是最新版本（$version），跳过" "$pkg is already the newest version ($version), skipping")"
             return 0
         fi
         if [ "$inst" = "1" ] && [ "$inst_version" != "unknown" ]; then
-            log.warn "$pkg 已安装更高版本（$inst_version > $version），跳过"
+            log.warn "$(apm_t "$pkg 已安装更高版本（$inst_version > $version），跳过" "$pkg has a newer version installed ($inst_version > $version), skipping")"
             return 0
         fi
-        log.info "$pkg: 升级 $inst_version -> $version"
+        log.info "$(apm_t "$pkg: 升级 $inst_version -> $version" "$pkg: upgrading $inst_version -> $version")"
         local deb
         deb="$(apm_fetch_deb "$pkg")" || return 1
         apm_install_deb "$deb" "$pkg" "$auto" upgrade "$APM_FORCE_OUTSIDE"
@@ -448,12 +448,12 @@ apm_cmd_install() {
                 while [ $# -gt 0 ]; do packages+=("$1"); shift; done
                 break
                 ;;
-            -*) die "未知选项: $1" ;;
+            -*) die "$(apm_t "未知选项: $1" "Unknown option: $1")" ;;
             *) packages+=("$1") ;;
         esac
         shift
     done
-    [ ${#packages[@]} -gt 0 ] || die "请指定要安装的软件包"
+    [ ${#packages[@]} -gt 0 ] || die "$(apm_t "请指定要安装的软件包" "Please specify package(s) to install")"
 
     apm_require_root
     apm_state_init
@@ -473,7 +473,7 @@ apm_cmd_install() {
             local pkg deps
             pkg="$(apm_deb_control_field "$p" Package)"
             [ -n "$pkg" ] || {
-                log.error "无法从 $p 读取包名"
+                log.error "$(apm_t "无法从 $p 读取包名" "Cannot read package name from $p")"
                 return 1
             }
             deps="$(apm_deb_control_field "$p" Depends)"
@@ -495,7 +495,7 @@ apm_cmd_install() {
     if [ ${#names[@]} -gt 0 ]; then
         for p in "${names[@]}"; do
             if ! apm_db_installed "$p" && ! apm_repo_has_pkg "$p"; then
-                log.error "未知软件包: $p"
+                log.error "$(apm_t "未知软件包: $p" "Unknown package: $p")"
                 return 1
             fi
         done
@@ -516,37 +516,119 @@ apm_cmd_install() {
 # ---------------------------------------------------------------------------
 # 卸载
 # ---------------------------------------------------------------------------
-apm_installed_rdepends() { # 包名 -> 依赖它的已安装包
+# 单个依赖替代项里的包名（去版本约束/架构）
+_apm_dep_alt_name() {
+    local n="$1"
+    n="${n%%(*}"
+    n="${n%%:*}"
+    n="${n#"${n%%[![:space:]]*}"}"
+    n="${n%"${n##*[![:space:]]}"}"
+    printf '%s\n' "$n"
+}
+
+# 包 deps 是否真的依赖 target（考虑 | 替代项：其它替代项已安装则不算）
+apm_pkg_depends_on() { # 依赖字符串 目标包名
+    local deps="$1" target="$2" item alt name
+    [ -n "$deps" ] || return 1
+    local -a items=() alts=()
+    IFS=',' read -ra items <<< "$deps"
+    for item in "${items[@]}"; do
+        local has_target=0 satisfied=0
+        IFS='|' read -ra alts <<< "$item"
+        for alt in "${alts[@]}"; do
+            name="$(_apm_dep_alt_name "$alt")"
+            [ -n "$name" ] || continue
+            if [ "$name" = "$target" ]; then
+                has_target=1
+            elif apm_db_installed "$name"; then
+                satisfied=1
+            fi
+        done
+        [ "$has_target" = "1" ] && [ "$satisfied" = "0" ] && return 0
+    done
+    return 1
+}
+
+# 依赖它的已安装包（精确处理 | 替代项）
+apm_installed_rdepends() {
     local p="$1" d
     for d in $(apm_db_list); do
         [ "$d" = "$p" ] && continue
-        local name
-        while IFS= read -r name; do
-            if [ "$name" = "$p" ]; then
-                printf '%s\n' "$d"
+        apm_pkg_depends_on "$(apm_db_depends "$d")" "$p" && printf '%s\n' "$d"
+    done
+}
+
+# 递归收集要卸载的包（包含依赖它们的已安装包）
+apm_removal_closure() { # 包名...
+    local -a queue=("$@")
+    local -A seen=()
+    local p d
+    while [ ${#queue[@]} -gt 0 ]; do
+        p="${queue[0]}"
+        queue=("${queue[@]:1}")
+        [ "${seen[$p]:-0}" = "1" ] && continue
+        seen[$p]=1
+        printf '%s\n' "$p"
+        while IFS= read -r d; do
+            [ -n "$d" ] || continue
+            [ "${seen[$d]:-0}" = "1" ] || queue+=("$d")
+        done < <(apm_installed_rdepends "$p")
+    done
+}
+
+# 卸载顺序：被依赖者最后（依赖它的包先删）
+apm_removal_order() { # 包名...
+    local -a remaining=("$@") result=()
+    local p q found dep
+    local -a next=()
+    while [ ${#remaining[@]} -gt 0 ]; do
+        found=""
+        for p in "${remaining[@]}"; do
+            dep=0
+            for q in "${remaining[@]}"; do
+                [ "$q" = "$p" ] && continue
+                if apm_pkg_depends_on "$(apm_db_depends "$q")" "$p"; then
+                    dep=1
+                    break
+                fi
+            done
+            if [ "$dep" = "0" ]; then
+                found="$p"
                 break
             fi
-        done < <(apm_dep_names "$(apm_db_depends "$d")")
+        done
+        if [ -z "$found" ]; then
+            # 循环依赖兜底
+            result+=("${remaining[@]}")
+            break
+        fi
+        result+=("$found")
+        next=()
+        for p in "${remaining[@]}"; do
+            [ "$p" = "$found" ] || next+=("$p")
+        done
+        remaining=("${next[@]}")
     done
+    [ ${#result[@]} -gt 0 ] && printf '%s\n' "${result[@]}"
 }
 
 apm_remove_pkg() { # 包名 [force]
     local pkg="$1" force="${2:-0}"
     apm_db_installed "$pkg" || {
-        log.error "未安装: $pkg"
+        log.error "$(apm_t "未安装: $pkg" "Not installed: $pkg")"
         return 1
     }
 
     local rdeps
     rdeps="$(apm_installed_rdepends "$pkg")"
     if [ -n "$rdeps" ] && [ "$force" != "1" ]; then
-        log.error "以下已安装的包依赖 $pkg，已拒绝卸载："
+        log.error "$(apm_t "以下已安装的包依赖 $pkg，已拒绝卸载：" "The following installed packages depend on $pkg; refusing to remove:")"
         printf '%s\n' "$rdeps" | sed 's/^/    /' >&2
-        log.error "可先卸载它们，或使用 --force 强制卸载"
+        log.error "$(apm_t "可先卸载它们，或使用 --force 强制卸载" "Remove them first, or use --force to override")"
         return 1
     fi
 
-    log.info "卸载 $pkg"
+    log.info "$(apm_t "卸载 $pkg" "Removing $pkg")"
     local other
     other="$(mktemp "${TMPDIR:-/tmp}/apm-other.XXXXXX")" || return 1
     apm_db_other_files "$pkg" > "$other"
@@ -583,23 +665,63 @@ apm_remove_pkg() { # 包名 [force]
 }
 
 apm_cmd_remove() {
-    local force=0
+    local assume_yes=0 force=0
     local -a packages=()
     while [ $# -gt 0 ]; do
         case "$1" in
-            -y | --yes) ;;
+            -y | --yes) assume_yes=1 ;;
             --force) force=1 ;;
-            -*) die "未知选项: $1" ;;
+            --) shift; while [ $# -gt 0 ]; do packages+=("$1"); shift; done; break ;;
+            -*) die "$(apm_t "$(apm_t "未知选项: $1" "Unknown option: $1")" "Unknown option: $1")" ;;
             *) packages+=("$1") ;;
         esac
         shift
     done
-    [ ${#packages[@]} -gt 0 ] || die "请指定要卸载的软件包"
+    [ ${#packages[@]} -gt 0 ] || die "$(apm_t "请指定要卸载的软件包" "Please specify package(s) to remove")"
     apm_require_root
 
-    local p any_failed=0
+    local p
     for p in "${packages[@]}"; do
-        apm_remove_pkg "$p" "$force" || any_failed=1
+        apm_db_installed "$p" || {
+            log.error "$(apm_t "$(apm_t "未安装: $p" "Not installed: $p")" "Not installed: $p")"
+            return 1
+        }
+    done
+
+    # 计算依赖闭包和卸载顺序（依赖它的包先删）
+    local -a plan=() order=()
+    mapfile -t plan < <(apm_removal_closure "${packages[@]}")
+    mapfile -t order < <(apm_removal_order "${plan[@]}")
+
+    {
+        printf '%s\n' "$(apm_t "将会卸载以下软件包：" "The following packages will be REMOVED:")"
+        for p in "${order[@]}"; do
+            printf '  %s\n' "$p"
+        done
+        printf '%s\n' "$(apm_t "共 ${#order[@]} 个软件包。" "${#order[@]} package(s) will be removed.")"
+    } >&2
+
+    if [ "$assume_yes" != "1" ] && [ "$force" != "1" ]; then
+        printf '%s' "$(apm_t "是否继续？[Y/n] " "Do you want to continue? [Y/n] ")" >&2
+        local answer=""
+        if ! IFS= read -r answer; then
+            printf '\n' >&2
+            log.info "$(apm_t "已取消。" "Aborted.")"
+            return 1
+        fi
+        case "$answer" in
+            "" | y | Y | yes | YES | Yes) ;;
+            *)
+                log.info "$(apm_t "已取消。" "Aborted.")"
+                return 1
+                ;;
+        esac
+    fi
+
+    local any_failed=0
+    for p in "${order[@]}"; do
+        # 顺序已由闭包保证，这里 force=1 避免循环依赖等边界情况再次拒绝
+        apm_remove_pkg "$p" 1 || any_failed=1
     done
     apm_run_triggers
     [ "$any_failed" = "0" ] || return 1
@@ -638,7 +760,7 @@ apm_cmd_autoremove() {
         case "$1" in
             -y | --yes) ;;
             --force) force=1 ;;
-            -*) die "未知选项: $1" ;;
+            -*) die "$(apm_t "未知选项: $1" "Unknown option: $1")" ;;
             *) packages+=("$1") ;;
         esac
         shift
@@ -706,7 +828,7 @@ apm_cmd_upgrade() {
     fi
 
     [ ${#targets[@]} -gt 0 ] || {
-        log.info "没有需要升级的软件包"
+        log.info "$(apm_t "没有需要升级的软件包" "No packages need upgrading")"
         return 0
     }
 
@@ -728,11 +850,11 @@ apm_cmd_hold() {
     local p any_failed=0
     for p in "$@"; do
         apm_db_installed "$p" || {
-            log.error "未安装: $p"
+            log.error "$(apm_t "未安装: $p" "Not installed: $p")"
             any_failed=1
             continue
         }
-        apm_db_set_flag "$p" Held 1 && log.info "已锁定 $p"
+        apm_db_set_flag "$p" Held 1 && log.info "$(apm_t "已锁定 $p" "Held $p")"
     done
     return "$any_failed"
 }
@@ -742,11 +864,11 @@ apm_cmd_unhold() {
     local p any_failed=0
     for p in "$@"; do
         apm_db_installed "$p" || {
-            log.error "未安装: $p"
+            log.error "$(apm_t "未安装: $p" "Not installed: $p")"
             any_failed=1
             continue
         }
-        apm_db_set_flag "$p" Held 0 && log.info "已解锁 $p"
+        apm_db_set_flag "$p" Held 0 && log.info "$(apm_t "已解锁 $p" "Unheld $p")"
     done
     return "$any_failed"
 }
@@ -764,10 +886,10 @@ apm_cmd_list() {
             --manual-installed) mode="manual" ;;
             --all | --all-versions | -a) mode="all" ;;
             -h | --help)
-                log.info "用法: apm list [--installed|--upgradable|--manual-installed|--all-versions]"
+                log.info "$(apm_t "用法: apm list [--installed|--upgradable|--manual-installed|--all-versions]" "Usage: apm list [--installed|--upgradable|--manual-installed|--all-versions]")"
                 return 0
                 ;;
-            *) die "未知选项: $1" ;;
+            *) die "$(apm_t "未知选项: $1" "Unknown option: $1")" ;;
         esac
         shift
     done
@@ -776,7 +898,7 @@ apm_cmd_list() {
     repo="$(apm_repo_dir_name)"
     [ -s "$APM_PACKAGES_FILE" ] && have_index=1
     if [ "$have_index" = "0" ] && [ "$mode" != "installed" ] && [ "$mode" != "manual" ]; then
-        log.warn "本地还没有仓库索引，仅列出已安装的软件包（sudo apm update 可获取索引）"
+        log.warn "$(apm_t "本地还没有仓库索引，仅列出已安装的软件包（sudo apm update 可获取索引）" "No local repository index; listing installed packages only (run sudo apm update to fetch the index)")"
     fi
 
     # apt list 输出的第一行
@@ -843,7 +965,7 @@ apm_cmd_list() {
 }
 
 apm_cmd_search() {
-    [ $# -gt 0 ] || die "请给出搜索关键词"
+    [ $# -gt 0 ] || die "$(apm_t "请给出搜索关键词" "Please provide search keywords")"
     local kw="$*" p
     local repo
     repo="$(apm_repo_dir_name)"
@@ -865,7 +987,7 @@ apm_cmd_search() {
 }
 
 apm_cmd_show() {
-    [ $# -gt 0 ] || die "请指定软件包"
+    [ $# -gt 0 ] || die "$(apm_t "请指定软件包" "Please specify package(s)")"
     local p
     for p in "$@"; do
         local stanza
@@ -875,7 +997,7 @@ apm_cmd_show() {
         elif apm_db_installed "$p"; then
             cat "$(apm_db_pkg_dir "$p")/status"
         else
-            log.error "未知软件包: $p"
+            log.error "$(apm_t "未知软件包: $p" "Unknown package: $p")"
             return 1
         fi
         if apm_db_installed "$p"; then
@@ -888,7 +1010,7 @@ apm_cmd_show() {
 }
 
 apm_cmd_policy() {
-    [ $# -gt 0 ] || die "请指定软件包"
+    [ $# -gt 0 ] || die "$(apm_t "请指定软件包" "Please specify package(s)")"
     local p
     for p in "$@"; do
         local inst cand
@@ -904,7 +1026,7 @@ apm_cmd_policy() {
 }
 
 apm_cmd_depends() {
-    [ $# -gt 0 ] || die "请指定软件包"
+    [ $# -gt 0 ] || die "$(apm_t "请指定软件包" "Please specify package(s)")"
     local p d
     for p in "$@"; do
         d="$(apm_repo_depends "$p")"
@@ -917,7 +1039,7 @@ apm_cmd_depends() {
 }
 
 apm_cmd_rdepends() {
-    [ $# -gt 0 ] || die "请指定软件包"
+    [ $# -gt 0 ] || die "$(apm_t "请指定软件包" "Please specify package(s)")"
     local p r
     for p in "$@"; do
         r="$(apm_repo_rdepends "$p")"
@@ -932,18 +1054,18 @@ apm_cmd_rdepends() {
 
 apm_cmd_download() {
     local dir="."
-    [ $# -gt 0 ] || die "请指定软件包"
+    [ $# -gt 0 ] || die "$(apm_t "请指定软件包" "Please specify package(s)")"
     apm_repo_ensure || return 1
     local p
     for p in "$@"; do
         local fn dest
         fn="$(apm_repo_filename "$p")"
         [ -n "$fn" ] || {
-            log.error "仓库里没有 $p"
+            log.error "$(apm_t "仓库里没有 $p" "Package not found in repository: $p")"
             return 1
         }
         dest="$dir/$(basename "$fn")"
-        log.info "下载 $p -> $dest"
+        log.info "$(apm_t "下载 $p -> $dest" "Downloading $p -> $dest")"
         apm_download_one "$(apm_repo_pkg_url "$p")" "$dest" || return 1
     done
 }
@@ -957,7 +1079,7 @@ apm_cmd_clean() {
             rm -f -- "$f" && n=$((n + 1))
         done
     fi
-    log.info "已清理 $n 个缓存文件"
+    log.info "$(apm_t "已清理 $n 个缓存文件" "Cleaned $n cached file(s)")"
 }
 
 # ---------------------------------------------------------------------------
@@ -972,10 +1094,10 @@ apm_run_triggers() {
     fi
 
     if command -v amber-pm-dstore-patch >/dev/null 2>&1; then
-        amber-pm-dstore-patch >/dev/null 2>&1 || log.warn "amber-pm-dstore-patch 执行失败"
+        amber-pm-dstore-patch >/dev/null 2>&1 || log.warn "$(apm_t "amber-pm-dstore-patch 执行失败" "amber-pm-dstore-patch failed")"
     fi
     if command -v amber-pm-desktop-fix >/dev/null 2>&1; then
-        amber-pm-desktop-fix >/dev/null 2>&1 || log.warn "amber-pm-desktop-fix 执行失败"
+        amber-pm-desktop-fix >/dev/null 2>&1 || log.warn "$(apm_t "amber-pm-desktop-fix 执行失败" "amber-pm-desktop-fix failed")"
     fi
     if command -v update-mime-database >/dev/null 2>&1 && [ -d /usr/share/mime ]; then
         update-mime-database /usr/share/mime >/dev/null 2>&1 &

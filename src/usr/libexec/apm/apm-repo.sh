@@ -83,9 +83,9 @@ _apm_aptss_conf_parse() {
 apm_aptss_conf_load() { # [--refresh]
     local refresh="${1:-}"
     if [ "$refresh" = "--refresh" ] || [ ! -s "$APM_APTFAST_CONF" ]; then
-        log.info "获取星火服务配置 apt-fast.conf"
+        log.info "$(apm_t "获取星火服务配置 apt-fast.conf" "Fetching Spark service config apt-fast.conf")"
         apm_http_get "$APM_SPARK_URL/apt-fast.conf" "$APM_APTFAST_CONF" ||
-            log.warn "无法获取 apt-fast.conf，使用默认下载参数（或沿用旧配置）"
+            log.warn "$(apm_t "无法获取 apt-fast.conf，使用默认下载参数（或沿用旧配置）" "Failed to fetch apt-fast.conf; using defaults (or existing config)")"
     fi
     [ -s "$APM_APTFAST_CONF" ] || [ -s "$APM_APTFAST_LOCAL" ] || return 0
     _apm_aptss_conf_parse
@@ -136,7 +136,7 @@ apm_aptss_list_lookup() { # [--refresh]
     local refresh="${1:-}"
     if [ "$refresh" = "--refresh" ] || [ ! -s "$APM_REPO_LIST_FILE" ]; then
         local list_name="apm-${APM_ARCH}.list"
-        log.info "获取星火服务源列表 $list_name"
+        log.info "$(apm_t "获取星火服务源列表 $list_name" "Fetching Spark service list $list_name")"
         if ! apm_http_get "$APM_SPARK_URL/$list_name" "$APM_REPO_LIST_FILE"; then
             log.debug "获取 $list_name 失败，沿用旧列表或回退到默认仓库地址"
             return 1
@@ -188,7 +188,7 @@ _apm_release_hash_for() { # 文件名 releasefile -> "sha256 size"
 _apm_verify_release() { # file repo_url
     local file="$1" repo="$2"
     if [ "$APM_INSECURE" = "1" ]; then
-        log.warn "APM_INSECURE=1：跳过仓库签名校验"
+        log.warn "$(apm_t "APM_INSECURE=1：跳过仓库签名校验" "APM_INSECURE=1: skipping repository signature verification")"
         return 0
     fi
     local keyring
@@ -197,7 +197,7 @@ _apm_verify_release() { # file repo_url
       如确认可信可设置 APM_INSECURE=1 跳过校验"
     fi
     command -v gpgv >/dev/null 2>&1 ||
-        die "校验仓库签名需要 gpgv（gnupg 提供），如确认可信可设置 APM_INSECURE=1 跳过校验"
+        die "$(apm_t "校验仓库签名需要 gpgv（gnupg 提供），如确认可信可设置 APM_INSECURE=1 跳过校验" "Verifying the repository signature requires gpgv (from gnupg); if you trust it, set APM_INSECURE=1 to skip verification")"
 
     if [ "$(basename "$file")" = "InRelease" ]; then
         gpgv --keyring "$keyring" "$file" >/dev/null 2>&1
@@ -220,11 +220,11 @@ apm_repo_update() {
     fi
     local repo
     repo="$(apm_repo_url)"
-    [ -n "$repo" ] || die "无法确定 APM 仓库地址"
-    log.info "APM 仓库: $repo"
+    [ -n "$repo" ] || die "$(apm_t "无法确定 APM 仓库地址" "Unable to determine APM repository URL")"
+    log.info "$(apm_t "APM 仓库: $repo" "APM repository: $repo")"
 
     local tmp
-    tmp="$(mktemp -d "${TMPDIR:-/tmp}/apm-repo.XXXXXX")" || die "无法创建临时目录"
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/apm-repo.XXXXXX")" || die "$(apm_t "无法创建临时目录" "Unable to create temporary directory")"
     # shellcheck disable=SC2064
     trap "rm -rf -- '$tmp'" EXIT
 
@@ -234,25 +234,25 @@ apm_repo_update() {
         if ! _apm_verify_release "$release_file" "$repo"; then
             trap - EXIT
             rm -rf -- "$tmp"
-            die "仓库签名校验失败: $repo/InRelease"
+            die "$(apm_t "仓库签名校验失败: $repo/InRelease" "Repository signature verification failed: $repo/InRelease")"
         fi
-        log.info "InRelease 签名校验通过"
+        log.info "$(apm_t "InRelease 签名校验通过" "InRelease signature verified")"
     else
-        log.warn "无法获取 InRelease，尝试 Release + Release.gpg"
+        log.warn "$(apm_t "无法获取 InRelease，尝试 Release + Release.gpg" "Failed to fetch InRelease; trying Release + Release.gpg")"
         apm_http_get "$repo/Release" "$tmp/Release" ||
-            die "无法获取仓库元数据: $repo"
+            die "$(apm_t "无法获取仓库元数据: $repo" "Failed to fetch repository metadata: $repo")"
         if ! apm_http_get "$repo/Release.gpg" "$tmp/Release.gpg"; then
             trap - EXIT
             rm -rf -- "$tmp"
-            die "仓库缺少 Release.gpg，拒绝使用未签名仓库（可用 APM_INSECURE=1 跳过）"
+            die "$(apm_t "仓库缺少 Release.gpg，拒绝使用未签名仓库（可用 APM_INSECURE=1 跳过）" "Repository has no Release.gpg; refusing unsigned repository (set APM_INSECURE=1 to skip)")"
         fi
         if ! _apm_verify_release "$tmp/Release" "$repo"; then
             trap - EXIT
             rm -rf -- "$tmp"
-            die "仓库签名校验失败: $repo/Release"
+            die "$(apm_t "仓库签名校验失败: $repo/Release" "Repository signature verification failed: $repo/Release")"
         fi
         release_file="$tmp/Release"
-        log.info "Release 签名校验通过"
+        log.info "$(apm_t "Release 签名校验通过" "Release signature verified")"
     fi
 
     # 选择索引文件：优先 Packages.xz，其次 Packages.gz / Packages
@@ -271,35 +271,35 @@ apm_repo_update() {
     [ -n "$index_name" ] || {
         trap - EXIT
         rm -rf -- "$tmp"
-        die "仓库元数据中没有 Packages 索引"
+        die "$(apm_t "仓库元数据中没有 Packages 索引" "Repository metadata has no Packages index")"
     }
 
-    log.info "下载索引 $index_name"
+    log.info "$(apm_t "下载索引 $index_name" "Downloading index $index_name")"
     apm_http_get "$repo/$index_name" "$tmp/$index_name" ||
-        die "下载索引失败: $repo/$index_name"
+        die "$(apm_t "下载索引失败: $repo/$index_name" "Failed to download index: $repo/$index_name")"
 
     local actual
     actual="$(sha256sum "$tmp/$index_name" | cut -d' ' -f1)"
     if [ "$actual" != "$index_hash" ]; then
         trap - EXIT
         rm -rf -- "$tmp"
-        die "索引 SHA256 校验失败: $index_name"
+        die "$(apm_t "索引 SHA256 校验失败: $index_name" "Index SHA256 verification failed: $index_name")"
     fi
-    log.info "索引 SHA256 校验通过"
+    log.info "$(apm_t "索引 SHA256 校验通过" "Index SHA256 verified")"
     if [ -n "$index_size" ]; then
         local actual_size
         actual_size="$(wc -c < "$tmp/$index_name" | tr -d ' ')"
         [ "$actual_size" = "$index_size" ] ||
-            log.warn "索引大小与元数据不一致（$actual_size != $index_size）"
+            log.warn "$(apm_t "索引大小与元数据不一致（$actual_size != $index_size）" "Index size differs from metadata ($actual_size != $index_size)")"
     fi
 
     case "$index_name" in
-        *.gz) gzip -dc "$tmp/$index_name" > "$tmp/Packages" || die "解压索引失败" ;;
-        *.xz) xz -dc "$tmp/$index_name" > "$tmp/Packages" || die "解压索引失败" ;;
+        *.gz) gzip -dc "$tmp/$index_name" > "$tmp/Packages" || die "$(apm_t "解压索引失败" "Failed to decompress index")" ;;
+        *.xz) xz -dc "$tmp/$index_name" > "$tmp/Packages" || die "$(apm_t "解压索引失败" "Failed to decompress index")" ;;
         *) cp -f "$tmp/$index_name" "$tmp/Packages" ;;
     esac
 
-    mkdir -p "$APM_LISTS_DIR" || die "无法写入 $APM_LISTS_DIR"
+    mkdir -p "$APM_LISTS_DIR" || die "$(apm_t "无法写入 $APM_LISTS_DIR" "Cannot write to $APM_LISTS_DIR")"
     cp -f "$tmp/$index_name" "$APM_LISTS_DIR/$index_name"
     mv -f "$tmp/Packages" "$APM_PACKAGES_FILE"
     cp -f "$release_file" "$APM_INRELEASE_FILE"
@@ -316,13 +316,13 @@ apm_repo_update() {
 
     trap - EXIT
     rm -rf -- "$tmp"
-    log.info "仓库索引已更新（$count 个软件包）"
+    log.info "$(apm_t "仓库索引已更新（$count 个软件包）" "Repository index updated ($count packages)")"
 }
 
 # 索引不存在时自动拉取一次（类似 aptss 首次使用自动 update）
 apm_repo_ensure() {
     if [ ! -s "$APM_PACKAGES_FILE" ]; then
-        log.info "本地没有仓库索引，正在获取..."
+        log.info "$(apm_t "本地没有仓库索引，正在获取..." "No local repository index; fetching...")"
         apm_repo_update
     fi
 }

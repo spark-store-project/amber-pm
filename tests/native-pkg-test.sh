@@ -226,6 +226,8 @@ printf 'deb [signed-by=/nonexistent] file://%s /\n' "$REPO" > "$SPARK/apm-$(unam
 run_apm() {
     env -u APM_REPO_URL -u APM_STATE_DIR \
         APM_ROOT="$ROOT" \
+        APM_LANG="${APM_TEST_LANG:-zh}" \
+        APM_APTFAST_LOCAL="$ROOT/etc/apm/apt-fast.conf" \
         APM_INSECURE=1 \
         APM_SPARK_URL="file://$SPARK" \
         APM_HOME_DIRS="$HOMES" \
@@ -241,7 +243,7 @@ state() { printf '%s\n' "$ROOT/var/lib/apm"; }
 # ===========================================================================
 # 0. aptss 镜像解析
 # ===========================================================================
-mirror_out="$(APM_APTFAST_CONF="$SPARK/apt-fast.conf" bash -c '
+mirror_out="$(APM_APTFAST_LOCAL="$WORK/no-such-local.conf" APM_APTFAST_CONF="$SPARK/apt-fast.conf" bash -c '
     . "'"$REPO_ROOT"'/src/usr/libexec/apm/apm-lib.sh"
     . "'"$REPO_ROOT"'/src/usr/libexec/apm/apm-repo.sh"
     APM_APTFAST_CONF="'"$SPARK"'/apt-fast.conf" apm_mirror_urls "file://'"$REPO"'/pool/x.deb"
@@ -313,6 +315,8 @@ assert_file "$(state)/fake-base/files/ace-env.tar.xz" "base 包 rootfs 保留（
 assert_eq "数据库记录版本" "1.0" "$(run_apm show fake-app | awk '$1=="Version:"{print $2; exit}')"
 assert_eq "依赖包标记为 auto" "1" "$(awk '$1=="Auto:"{print $2}' "$(state)/apm-conf/db/fake-base/status")"
 assert_eq "直接安装的包标记为 manual" "0" "$(awk '$1=="Auto:"{print $2}' "$(state)/apm-conf/db/fake-app/status")"
+out="$(APM_TEST_LANG=en run_apm install fake-app)"
+assert_contains "英文环境安装提示" "$out" "already the newest version"
 
 out="$(run_apm list)"
 assert_contains "list 显示已安装包" "$out" "fake-app/"
@@ -345,7 +349,7 @@ assert_contains "reinstall 重新安装" "$out" "重新安装 1.0"
 out="$(run_apm install fake-addon)"
 assert_contains "安装 addon" "$out" "安装 fake-addon 1.0"
 assert_file "$(state)/fake-base/info_layer_addons.d/50-fake-addon" "addon 登记写入 base 目录"
-run_apm remove fake-addon >/dev/null
+run_apm remove -y fake-addon >/dev/null
 assert_no_file "$(state)/fake-addon" "addon 包目录已删除"
 assert_no_file "$(state)/fake-base/info_layer_addons.d/50-fake-addon" "addon 登记文件已删除"
 assert_no_file "$(state)/apm-conf/db/fake-addon" "addon 数据库记录已删除"
@@ -361,7 +365,7 @@ assert_not_contains "拒绝时不写数据库" "$(run_apm list --installed)" "ev
 out="$(run_apm install --force-outside-paths evil-path)"
 assert_contains "强制安装成功" "$out" "安装 evil-path 1.0"
 assert_file "$ROOT/usr/bin/apm-evil" "强制安装写入越界路径"
-run_apm remove evil-path >/dev/null
+run_apm remove -y evil-path >/dev/null
 assert_no_file "$ROOT/usr/bin/apm-evil" "卸载时删除越界文件"
 
 # ===========================================================================
@@ -389,12 +393,28 @@ run_apm unhold fake-app >/dev/null
 assert_eq "unhold 标记" "0" "$(awk '$1=="Held:"{print $2}' "$(state)/apm-conf/db/fake-app/status")"
 
 # ===========================================================================
-# 8. 卸载保护与 autoremove
+# 8. 卸载：自动解析依赖 + y/n 确认 + 按序卸载
 # ===========================================================================
 out="$(run_apm remove fake-base)"
-assert_contains "有反向依赖时拒绝卸载 base" "$out" "依赖 fake-base"
+assert_contains "卸载计划包含依赖它的包" "$out" "fake-app"
+assert_contains "卸载前询问确认" "$out" "是否继续"
+assert_file "$(state)/fake-app" "未确认时应用仍存在"
+assert_file "$(state)/fake-base" "未确认时 base 仍存在"
+
+out="$(APM_TEST_LANG=en run_apm remove fake-base)"
+assert_contains "英文环境使用英文提示" "$out" "Do you want to continue"
+assert_contains "英文环境使用英文计划" "$out" "will be REMOVED"
+
+out="$(run_apm remove -y fake-base)"
+assert_contains "先卸载依赖方" "$out" "卸载 fake-app"
+assert_contains "再卸载 base" "$out" "卸载 fake-base"
+assert_no_file "$(state)/fake-app" "应用包目录已删除"
+assert_no_file "$(state)/fake-base" "base 目录已删除"
+
+# 重新安装，验证 autoremove 仍能清理自动依赖
+run_apm install fake-app >/dev/null
 mkdir -p "$HOMES/.apm/fake-app"
-run_apm remove fake-app >/dev/null
+run_apm remove -y fake-app >/dev/null
 assert_no_file "$(state)/fake-app" "应用包目录已删除"
 assert_no_file "$HOMES/.apm/fake-app" "用户目录 ~/.apm/<pkg> 已清理"
 out="$(run_apm autoremove)"
@@ -411,7 +431,7 @@ assert_contains "ssaudit 校验通过" "$(run_apm ssaudit "$WORK/verify/fake-app
 cp "$REPO/pool/fake-app_2.0_all.deb" "$WORK/verify/fake-app_2.0_all_tampered.deb"
 printf 'x' >> "$WORK/verify/fake-app_2.0_all_tampered.deb"
 assert_contains "ssaudit 发现被篡改" "$(run_apm ssaudit "$WORK/verify/fake-app_2.0_all_tampered.deb")" "校验失败"
-run_apm remove fake-app >/dev/null
+run_apm remove -y fake-app >/dev/null
 out="$(run_apm ssinstall "$REPO/pool/fake-app_2.0_all.deb")"
 assert_contains "ssinstall 校验并安装" "$out" "已按星火仓库校验"
 assert_file "$(state)/fake-app/files/core/opt/fake/version.txt" "ssinstall 安装文件存在"
