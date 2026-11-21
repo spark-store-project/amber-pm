@@ -397,8 +397,9 @@ _apm_dl_file_size() {
     stat -c '%s' -- "$1" 2>/dev/null || printf '0\n'
 }
 
-_apm_dl_render() { # label got total servers conns done
+_apm_dl_render() { # label got total servers conns done [speed]
     local label="$1" got="$2" total="$3" servers="$4" conns="$5" done="$6"
+    local speed_override="${7:-}"
     local pct=0 bar="" width=24 filled empty
     local now speed=0 dt db
     case "$got" in '' | *[!0-9]*) got=0 ;; esac
@@ -413,14 +414,19 @@ _apm_dl_render() { # label got total servers conns done
     bar="${bar// /█}"
     printf -v empty '%*s' $((width - filled)) ''
     empty="${empty// /░}"
-    now="$(_apm_dl_now_ms)"
-    dt=$((now - ${APM_DL_LAST_MS:-$now}))
-    db=$((got - ${APM_DL_LAST_BYTES:-0}))
-    if [ "$dt" -gt 0 ] && [ "$db" -gt 0 ]; then
-        speed=$((db * 1000 / dt))
+    if [ -n "$speed_override" ]; then
+        case "$speed_override" in '' | *[!0-9]*) speed_override=0 ;; esac
+        speed="$speed_override"
+    else
+        now="$(_apm_dl_now_ms)"
+        dt=$((now - ${APM_DL_LAST_MS:-$now}))
+        db=$((got - ${APM_DL_LAST_BYTES:-0}))
+        if [ "$dt" -gt 0 ] && [ "$db" -gt 0 ]; then
+            speed=$((db * 1000 / dt))
+        fi
+        APM_DL_LAST_MS="$now"
+        APM_DL_LAST_BYTES="$got"
     fi
-    APM_DL_LAST_MS="$now"
-    APM_DL_LAST_BYTES="$got"
 
     local got_h total_h speed_h
     got_h="$(apm_human_size "$got")"
@@ -506,8 +512,36 @@ _apm_curl_download_worker() { # dest url...
     return 1
 }
 
+# aria2 RPC：取真实 completedLength / downloadSpeed / connections / numServers
+_apm_free_port() {
+    local p i
+    for i in $(seq 1 30); do
+        p=$(( (RANDOM % 40000) + 20000 ))
+        if ! (exec 3<>"/dev/tcp/127.0.0.1/$p") 2>/dev/null; then
+            printf '%s\n' "$p"
+            return 0
+        fi
+    done
+    printf '6800\n'
+}
+
+_apm_json_escape() {
+    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+_apm_json_field() { # json field
+    printf '%s' "$1" | sed -n 's/.*"'"$2"'":"\([^"]*\)".*/\1/p'
+}
+
+_apm_aria2_rpc() { # port secret method extra_params
+    local port="$1" secret="$2" method="$3" extra="${4:-}"
+    curl -fsS --max-time 3 -H 'Content-Type: application/json' 2>/dev/null \
+        -d "{\"jsonrpc\":\"2.0\",\"id\":\"apm\",\"method\":\"$method\",\"params\":[\"token:$secret\"$extra]}" \
+        "http://127.0.0.1:$port/jsonrpc"
+}
+
 # ---------------------------------------------------------------------------
-# 下载：优先 aria2c（与 aptss/apt-fast 相同的服务端配置参数），否则 curl
+# 下载：优先 aria2c（RPC 读取真实进度），否则 curl
 # ---------------------------------------------------------------------------
 apm_download_one() { # url dest [label] [total]
     local url="$1" dest="$2" label="${3:-$(basename "$2")}" total="${4:-0}"
@@ -533,38 +567,120 @@ apm_download_one() { # url dest [label] [total]
         case "$maxconn" in '' | *[!0-9]*) maxconn=1 ;; esac
         [ "$split" -ge 1 ] || split=8
         [ "$maxconn" -ge 1 ] || maxconn=1
-        # 有镜像时每个服务器 1 条连接也能多线；没有镜像时用分片数强开多连接
         if [ "$servers" -le 1 ] && [ "$maxconn" -le 1 ]; then
             maxconn="$split"
         fi
 
+        local rpc_port rpc_secret rpc_pid gid resp
+        local comp total_len speed conns num_servers status rpc_ok=0 i
         log="$(mktemp "${TMPDIR:-/tmp}/apm-aria2.XXXXXX" 2>/dev/null || echo /dev/null)"
-        _apm_dl_progress_begin "$label" "$total" "$servers" "$maxconn"
-        started=1
-        aria2c --no-conf -c \
-            -s "$split" -x "$maxconn" -j "${APM_MAXNUM:-5}" \
-            -k "${APM_MINSPLITSZ:-1M}" \
-            --stream-piece-selector="${APM_PIECEALGO:-default}" \
-            --connect-timeout=30 --timeout=40 \
-            --max-tries="${APM_MAXRETRY:-2}" --retry-wait=1 \
-            --async-dns=false --check-certificate=false \
-            --user-agent="aptss/4.x apm/${APM_VERSION:-2}" \
-            --summary-interval=0 --console-log-level=error \
-            -d "$dir" -o "$base" "${urls[@]}" >/dev/null 2>>"$log" &
-        pid=$!
-        _apm_dl_progress_wait "$pid" "$dest"
-        rc=$?
-        if [ "$rc" -eq 0 ] && [ -s "$dest" ]; then
+        rpc_port="$(_apm_free_port)"
+        rpc_secret="apm${RANDOM}${RANDOM}$$"
+        aria2c --no-conf --enable-rpc=true --rpc-listen-all=false \
+            --rpc-listen-port="$rpc_port" --rpc-secret="$rpc_secret" \
+            --max-concurrent-downloads=1 --summary-interval=0 \
+            --console-log-level=error --file-allocation=none \
+            >/dev/null 2>>"$log" &
+        rpc_pid=$!
+
+        for i in $(seq 1 50); do
+            if resp="$(_apm_aria2_rpc "$rpc_port" "$rpc_secret" aria2.getVersion "")"; then
+                rpc_ok=1
+                break
+            fi
+            kill -0 "$rpc_pid" 2>/dev/null || break
+            sleep 0.1
+        done
+
+        if [ "$rpc_ok" = "1" ]; then
+            local urls_json="" u
+            for u in "${urls[@]}"; do
+                [ -n "$urls_json" ] && urls_json+=","
+                urls_json+="\"$(_apm_json_escape "$u")\""
+            done
+            local dir_e out_e ua_e
+            dir_e="$(_apm_json_escape "$dir")"
+            out_e="$(_apm_json_escape "$base")"
+            ua_e="$(_apm_json_escape "aptss/4.x apm/${APM_VERSION:-2}")"
+            local opts
+            opts="{\"dir\":\"$dir_e\",\"out\":\"$out_e\",\"split\":\"$split\",\"max-connection-per-server\":\"$maxconn\",\"min-split-size\":\"${APM_MINSPLITSZ:-1M}\",\"continue\":\"true\",\"check-certificate\":\"false\",\"user-agent\":\"$ua_e\",\"max-tries\":\"${APM_MAXRETRY:-2}\",\"retry-wait\":\"1\",\"stream-piece-selector\":\"${APM_PIECEALGO:-default}\",\"file-allocation\":\"none\"}"
+            resp="$(_apm_aria2_rpc "$rpc_port" "$rpc_secret" aria2.addUri ",[$urls_json],$opts")"
+            gid="$(_apm_json_field "$resp" result)"
+        fi
+
+        if [ "$rpc_ok" != "1" ] || [ -z "$gid" ]; then
+            kill "$rpc_pid" 2>/dev/null || true
+            wait "$rpc_pid" 2>/dev/null || true
             [ "$log" != "/dev/null" ] && rm -f -- "$log"
-            log.debug "aria2c 下载完成：源 ${servers} 个，split=$split，单服务器连接=$maxconn"
-            return 0
+            log.warn "$(apm_t "aria2 RPC 初始化失败，改用 curl 下载: ${err:-未知错误}" "aria2 RPC initialization failed; falling back to curl: ${err:-unknown error}")"
+        else
+            _apm_dl_progress_begin "$label" "$total" "$servers" "$maxconn"
+            started=1
+            local finished=0 progress_closed=0
+            while :; do
+                resp="$(_apm_aria2_rpc "$rpc_port" "$rpc_secret" aria2.tellStatus ",\"$gid\",[\"completedLength\",\"totalLength\",\"downloadSpeed\",\"connections\",\"numServers\",\"status\",\"errorMessage\"]")" || break
+                comp="$(_apm_json_field "$resp" completedLength)"
+                total_len="$(_apm_json_field "$resp" totalLength)"
+                speed="$(_apm_json_field "$resp" downloadSpeed)"
+                conns="$(_apm_json_field "$resp" connections)"
+                num_servers="$(_apm_json_field "$resp" numServers)"
+                status="$(_apm_json_field "$resp" status)"
+                [ -n "$status" ] || break
+                [ -n "$comp" ] || comp=0
+                if [ -n "$total_len" ] && [ "$total_len" -gt 0 ] 2>/dev/null; then
+                    total="$total_len"
+                fi
+                [ -n "$num_servers" ] || num_servers="$servers"
+                [ -n "$conns" ] || conns="$maxconn"
+                case "$status" in
+                    complete | error | removed) ;;
+                    *)
+                        if _apm_dl_progress_enabled; then
+                            _apm_dl_render "$label" "$comp" "$total" "$num_servers" "$conns" 0 "$speed"
+                        fi
+                        ;;
+                esac
+                case "$status" in
+                    complete)
+                        if _apm_dl_progress_enabled; then
+                            _apm_dl_render "$label" "$comp" "$total" "$num_servers" "$conns" 1 "$speed"
+                            printf '\n\033[?25h' >&2
+                            progress_closed=1
+                        fi
+                        finished=1
+                        break
+                        ;;
+                    error | removed)
+                        if _apm_dl_progress_enabled; then
+                            _apm_dl_render "$label" "$comp" "$total" "$num_servers" "$conns" 2 "$speed"
+                            printf '\n\033[?25h' >&2
+                            progress_closed=1
+                        fi
+                        break
+                        ;;
+                esac
+                kill -0 "$rpc_pid" 2>/dev/null || break
+                sleep 0.2
+            done
+            if [ "$progress_closed" = "0" ] && _apm_dl_progress_enabled; then
+                _apm_dl_render "$label" "${comp:-0}" "$total" "${num_servers:-$servers}" "${conns:-$maxconn}" 2 "${speed:-0}"
+                printf '\n\033[?25h' >&2
+            fi
+            kill "$rpc_pid" 2>/dev/null || true
+            wait "$rpc_pid" 2>/dev/null || true
+            if [ "$finished" = "1" ] && [ -s "$dest" ]; then
+                [ "$log" != "/dev/null" ] && rm -f -- "$log"
+                log.debug "aria2c 下载完成：源 ${num_servers:-$servers} 个，实际连接 ${conns:-$maxconn}"
+                return 0
+            fi
+            err=""
+            if [ -s "$log" ]; then
+                err="$(tail -n 2 "$log" 2>/dev/null | tr '\n' ' ')"
+            fi
+            [ "$log" != "/dev/null" ] && rm -f -- "$log"
+            rm -f -- "${dest}.aria2"
+            log.warn "$(apm_t "aria2c 下载失败，改用 curl 单线程下载: ${err:-未知错误}" "aria2c download failed; falling back to single-thread curl: ${err:-unknown error}")"
         fi
-        err=""
-        if [ -s "$log" ]; then
-            err="$(tail -n 2 "$log" 2>/dev/null | tr '\n' ' ')"
-        fi
-        [ "$log" != "/dev/null" ] && rm -f -- "$log"
-        log.warn "$(apm_t "aria2c 下载失败（rc=$rc），改用 curl 单线程下载: ${err:-未知错误}" "aria2c download failed (rc=$rc); falling back to single-thread curl: ${err:-unknown error}")"
     fi
 
     # curl：单连接，但会按顺序尝试镜像；显示 1/N 个服务器
