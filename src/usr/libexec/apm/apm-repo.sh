@@ -54,12 +54,27 @@ _apm_conf_value() { # 文件 key
         }' "$2" 2>/dev/null
 }
 
+# 下载到临时文件后原子替换。
+# 不能直接下载到目标文件：aria2c -c 遇到已存在的完整文件会跳过下载，
+# 导致 apt-fast.conf / 源列表在远端更新后仍使用旧内容。
+_apm_download_replace() { # url dest
+    local url="$1" dest="$2" tmp
+    mkdir -p "$(dirname -- "$dest")" || return 1
+    tmp="$(mktemp "${dest}.tmp.XXXXXX")" || return 1
+    if apm_download_one "$url" "$tmp"; then
+        mv -f -- "$tmp" "$dest"
+        return 0
+    fi
+    rm -f -- "$tmp"
+    return 1
+}
+
 apm_aptss_conf_load() { # [--refresh]
     local refresh="${1:-}"
     if [ "$refresh" = "--refresh" ] || [ ! -s "$APM_APTFAST_CONF" ]; then
         log.info "获取星火服务配置 apt-fast.conf"
-        apm_download_one "$APM_SPARK_URL/apt-fast.conf" "$APM_APTFAST_CONF" ||
-            log.warn "无法获取 apt-fast.conf，使用默认下载参数"
+        _apm_download_replace "$APM_SPARK_URL/apt-fast.conf" "$APM_APTFAST_CONF" ||
+            log.warn "无法获取 apt-fast.conf，使用默认下载参数（或沿用旧配置）"
     fi
     [ -s "$APM_APTFAST_CONF" ] || return 0
 
@@ -108,8 +123,8 @@ apm_aptss_list_lookup() { # [--refresh]
     if [ "$refresh" = "--refresh" ] || [ ! -s "$APM_REPO_LIST_FILE" ]; then
         local list_name="apm-${APM_ARCH}.list"
         log.info "获取星火服务源列表 $list_name"
-        if ! apm_download_one "$APM_SPARK_URL/$list_name" "$APM_REPO_LIST_FILE"; then
-            log.debug "获取 $list_name 失败，回退到默认仓库地址"
+        if ! _apm_download_replace "$APM_SPARK_URL/$list_name" "$APM_REPO_LIST_FILE"; then
+            log.debug "获取 $list_name 失败，沿用旧列表或回退到默认仓库地址"
             return 1
         fi
     fi
@@ -184,6 +199,11 @@ apm_repo_update() {
 
     local refresh="${1:-}"
     apm_aptss_conf_load "$refresh"
+    # apm update 时同步刷新服务源列表（仓库地址/镜像可能变化）；
+    # 其它命令只在列表缺失时才下载。刷新失败则沿用旧列表。
+    if [ "$refresh" = "--refresh" ] && [ -z "${APM_REPO_URL:-}" ]; then
+        apm_aptss_list_lookup --refresh >/dev/null || true
+    fi
     local repo
     repo="$(apm_repo_url)"
     [ -n "$repo" ] || die "无法确定 APM 仓库地址"

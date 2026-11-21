@@ -249,6 +249,20 @@ mirror_out="$(APM_APTFAST_CONF="$SPARK/apt-fast.conf" bash -c '
 assert_eq "镜像 1 生成正确" "http://mirror1.example/apm/pool/x.deb" "$(printf '%s\n' "$mirror_out" | sed -n 1p)"
 assert_eq "镜像 2 生成正确" "http://mirror2.example/apm/pool/x.deb" "$(printf '%s\n' "$mirror_out" | sed -n 2p)"
 
+# 0.1 配置刷新：模拟 aria2c -c 在目标已存在时跳过下载的行为，
+#     确认 _apm_download_replace 仍然会用新内容替换旧配置
+refresh_target="$(state)/lists/refresh-test.conf"
+mkdir -p "$(dirname "$refresh_target")"
+printf 'OLD\n' > "$refresh_target"
+refresh_out="$(bash -c '
+    . "'"$REPO_ROOT"'/src/usr/libexec/apm/apm-lib.sh"
+    . "'"$REPO_ROOT"'/src/usr/libexec/apm/apm-repo.sh"
+    apm_download_one() { [ -s "$2" ] && return 0; printf "NEW\n" > "$2"; }
+    _apm_download_replace "http://example/conf" "'"$refresh_target"'"
+    cat "'"$refresh_target"'"
+')"
+assert_eq "配置刷新不会被旧文件跳过" "NEW" "$refresh_out"
+
 # ===========================================================================
 # 1. update（读取 aptss 服务配置 + 仓库索引）
 # ===========================================================================
