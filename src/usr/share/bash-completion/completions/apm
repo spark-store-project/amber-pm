@@ -1,4 +1,4 @@
-# shellcheck disable=SC2034,SC2207
+# shellcheck disable=SC2034,SC2088,SC2207
 # apm(8) bash 补全（2.0.0+ 原生包管理）
 # 安装位置：/usr/share/bash-completion/completions/apm
 
