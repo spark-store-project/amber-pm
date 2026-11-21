@@ -92,6 +92,7 @@ systemd-run --user --quiet --wait --pipe --collect -- <命令...>
 | 工作目录 | ✅ `--working-directory` 可指定；不指定时默认 `$HOME` |
 | NOPASSWD sudo | ✅ `systemd-run --user ... sudo -n id -u` → 0 |
 | xdg-open | ✅ `--version` 正常（未实际弹出浏览器） |
+| **可执行文件解析** | `systemd-run --user fastfetch` / `/usr/bin/fastfetch` 均失败：systemd-run 在**容器内**解析路径，base 里没有 fastfetch；需用 `/usr/bin/env fastfetch` 或 `/bin/sh -c 'exec "$@"'` 交给主机 PATH。原版 host-spawn 直接把 argv 发到主机，所以 `host-spawn fastfetch` 正常 |
 | 非 tty 调用 | `tty` 报“不是 tty”（预期） |
 | 真实终端下 | `script` 分配 pty 后，`tty` 输出 `/dev/pts/4`，`read` 可交互 |
 | pty 窗口大小 | ❌ `stty size` 为 `0 0`（host-spawn 会传窗口大小） |
@@ -164,7 +165,8 @@ for n in "${env_names[@]}"; do
     [ -n "${!n+x}" ] && args+=(-E "$n=${!n}")
 done
 [ -n "${PWD:-}" ] && [ -d "/host$PWD" ] && args+=(--working-directory="$PWD")
-exec "${args[@]}" -- "$@"
+# 关键：systemd-run 会在容器内解析可执行文件路径，所以交给主机的 /usr/bin/env 去查主机 PATH
+exec "${args[@]}" -- /usr/bin/env "$@"
 ```
 
 - 体积：11.4 MB → ~2 KB；
@@ -173,6 +175,30 @@ exec "${args[@]}" -- "$@"
 - `sudo`/`pkexec` wrapper 需要同时修掉 `apm-debug` 调用（改成直接 `host-spawn sudo "$@"` /
   `host-spawn pkexec "$@"`）；
 - 风险：PTY 窗口大小、信号、polkit 会话、容器内独有 cwd 与 host-spawn 略有差异。
+
+### ⚠️ 可执行文件解析的坑
+
+`systemd-run` 是**客户端**：它会在容器内用容器 PATH 解析 `ExecStart`，再把绝对路径发给主机。
+所以下面两种写法都会失败（base 里没有 fastfetch，绝对路径也不存在）：
+
+```bash
+systemd-run --user fastfetch
+systemd-run --user /usr/bin/fastfetch
+# Failed to find executable ...: No such file or directory
+```
+
+必须让主机自己解析命令：
+
+```bash
+# 方式 1：env 在主机上查 PATH
+systemd-run --user --quiet --wait --pipe --collect -- /usr/bin/env fastfetch
+
+# 方式 2：主机 shell 执行
+systemd-run --user --quiet --wait --pipe --collect -- /bin/sh -c 'exec "$@"' sh fastfetch
+```
+
+上面的原型脚本已经改成 `/usr/bin/env "$@"`。`sudo`/`pkexec` 等主机命令同样要经过
+`env`（或 shell）包装，否则会因为是“容器里不存在的命令”而失败。
 
 ### 方案 B（保真度优先：自研小助手）
 
