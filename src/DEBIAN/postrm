@@ -2,7 +2,8 @@
 # APM 卸载脚本
 #
 # 2.0.0 起 APM 包直接安装在 /var/lib/apm/<包名>/，因此卸载 APM 时按约定
-# 一并删除 /var/lib/apm 下的全部应用、用户目录中的 ~/.apm 以及桌面集成链接。
+# 直接删除 /var/lib/apm 下的全部应用和用户目录中的 ~/.apm。
+# 不再递归扫描 /usr 清理桌面链接，避免卸载时进行大量 find。
 # 如果宿主机还用 apt 单独安装过 APM 应用包，这些包也会失去文件，卸载前请确认。
 PACKAGE_NAME="$DPKG_MAINTSCRIPT_PACKAGE"
 systemctl stop apm-daily-update 2>/dev/null || true
@@ -10,24 +11,6 @@ systemctl disable apm-daily-update 2>/dev/null || true
 
 if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
     echo "正在卸载 APM，并删除 /var/lib/apm 下的全部应用..."
-
-    # 清理指向 /var/lib/apm 的桌面/图标/自启动等集成链接。
-    # dstore-patch 创建的是相对链接，这里用 realpath 解析后再判断。
-    for d in \
-        /usr/share/applications /usr/local/share/applications /usr/local/share/applications/apm \
-        /usr/share/icons /usr/local/share/icons \
-        /etc/xdg/autostart \
-        /usr/share/mime /usr/share/glib-2.0/schemas /usr/share/GConf \
-        /usr/share/help /usr/share/locale /usr/share/pixmaps \
-        /usr/share/polkit-1/actions /usr/share/fcitx /etc/fonts/conf.d; do
-        [ -d "$d" ] || continue
-        while IFS= read -r link; do
-            target="$(realpath -m -- "$link" 2>/dev/null)" || continue
-            case "$target" in
-                /var/lib/apm/*) rm -f -- "$link" ;;
-            esac
-        done < <(find "$d" -type l 2>/dev/null)
-    done
 
     # 删除所有软件包（包括 base 环境、缓存、数据库）
     rm -rf /var/lib/apm
