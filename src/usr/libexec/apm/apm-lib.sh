@@ -447,23 +447,30 @@ _apm_dl_file_size() {
     stat -c '%s' -- "$1" 2>/dev/null || printf '0\n'
 }
 
+_apm_dl_term_cols() {
+    local c="${COLUMNS:-}"
+    if [ -z "$c" ] && command -v tput >/dev/null 2>&1; then
+        c="$(tput cols 2>/dev/null || true)"
+    fi
+    case "$c" in
+        '' | *[!0-9]*) c=80 ;;
+    esac
+    [ "$c" -ge 40 ] 2>/dev/null || c=80
+    printf '%s\n' "$c"
+}
+
 _apm_dl_render() { # label got total servers conns done [speed]
     local label="$1" got="$2" total="$3" servers="$4" conns="$5" done="$6"
     local speed_override="${7:-}"
-    local pct=0 bar="" width=24 filled empty
-    local now speed=0 dt db
+    local pct=0 speed=0 now dt db
+    local cols max_len bar_width=0
     case "$got" in '' | *[!0-9]*) got=0 ;; esac
     case "$total" in '' | *[!0-9]*) total=0 ;; esac
     if [ "$total" -gt 0 ]; then
         pct=$((got * 100 / total))
         [ "$pct" -gt 100 ] && pct=100
     fi
-    filled=$((pct * width / 100))
-    [ "$filled" -gt "$width" ] && filled="$width"
-    printf -v bar '%*s' "$filled" ''
-    bar="${bar// /█}"
-    printf -v empty '%*s' $((width - filled)) ''
-    empty="${empty// /░}"
+
     if [ -n "$speed_override" ]; then
         case "$speed_override" in '' | *[!0-9]*) speed_override=0 ;; esac
         speed="$speed_override"
@@ -478,31 +485,81 @@ _apm_dl_render() { # label got total servers conns done [speed]
         APM_DL_LAST_BYTES="$got"
     fi
 
-    local got_h total_h speed_h
+    local got_h total_h speed_h sizes
     got_h="$(apm_human_size "$got")"
     if [ "$total" -gt 0 ]; then
         total_h="$(apm_human_size "$total")"
+        if [ "${got_h##* }" = "${total_h##* }" ]; then
+            sizes="${got_h% *}/${total_h}"
+        else
+            sizes="${got_h}/${total_h}"
+        fi
     else
         total_h="?"
+        sizes="${got_h}/?"
     fi
     speed_h="$(apm_human_size "$speed")"
 
-    local suffix=""
-    [ "$servers" != "" ] && suffix="$(apm_t "服务器 ${servers}" "servers ${servers}")"
-    [ "$conns" != "" ] && suffix="${suffix}  $(apm_t "连接 ${conns}" "conns ${conns}")"
-    [ "$done" = "1" ] && suffix="${suffix}  $(apm_t "完成" "done")"
-    [ "$done" = "2" ] && suffix="${suffix}  $(apm_t "失败" "failed")"
-
-    local pct_s suffix_color=""
-    if [ "$total" -gt 0 ]; then pct_s="${pct}%"; else pct_s="--%"; fi
-    if [ "$done" = "1" ]; then
-        suffix_color=$'\033[32m'
-    elif [ "$done" = "2" ]; then
-        suffix_color=$'\033[31m'
+    # 标签限长，避免长包名把整行挤爆
+    if [ "${#label}" -gt 18 ]; then
+        label="${label:0:17}…"
     fi
-    printf '\r\033[K\033[36m[%s/%s]\033[0m \033[1m%s\033[0m  %s \033[32m[%s\033[0m\033[2m%s\033[0m\033[32m]\033[0m %s/%s  %s/s  %s%s\033[0m' \
-        "$APM_DL_TASK_INDEX" "$APM_DL_TASK_TOTAL" "$label" "$pct_s" \
-        "$bar" "$empty" "$got_h" "$total_h" "$speed_h" "$suffix" "$suffix_color" >&2
+
+    local pct_s
+    if [ "$total" -gt 0 ]; then pct_s="${pct}%"; else pct_s="--%"; fi
+
+    local suffix=""
+    [ -n "$servers" ] && suffix="$(apm_t "源" "srv")${servers}"
+    [ -n "$conns" ] && suffix="${suffix} $(apm_t "连" "conn")${conns}"
+    [ "$done" = "1" ] && suffix="${suffix} $(apm_t "完成" "done")"
+    [ "$done" = "2" ] && suffix="${suffix} $(apm_t "失败" "failed")"
+
+    local task="[${APM_DL_TASK_INDEX}/${APM_DL_TASK_TOTAL}]"
+    local fixed speed_part
+    speed_part="${speed_h}/s"
+
+    cols="$(_apm_dl_term_cols)"
+    max_len=$((cols - 6))
+    [ "$max_len" -lt 40 ] && max_len=40
+
+    # 空间不够时依次：去掉速度、缩短标签；优先保留进度和源/连接
+    fixed="${task} ${label} ${pct_s}  ${sizes}  ${speed_part}  ${suffix}"
+    if [ "${#fixed}" -gt "$((max_len - 4))" ]; then
+        speed_part=""
+        fixed="${task} ${label} ${pct_s}  ${sizes}  ${suffix}"
+    fi
+    if [ "${#fixed}" -gt "$((max_len - 4))" ]; then
+        local over=$(( ${#fixed} - (max_len - 4) + 2 ))
+        local new_len=$(( ${#label} - over ))
+        [ "$new_len" -lt 4 ] && new_len=4
+        label="${label:0:new_len}"
+        fixed="${task} ${label} ${pct_s}  ${sizes}  ${suffix}"
+    fi
+
+    # 剩余空间给进度条；空间太小就只显示百分比，不强行放进度条
+    bar_width=$((max_len - ${#fixed} - 4))
+    [ "$bar_width" -gt 20 ] && bar_width=20
+    [ "$bar_width" -lt 8 ] && bar_width=0
+
+    if [ "$bar_width" -gt 0 ]; then
+        local bar="" empty="" filled empty_n
+        filled=$((pct * bar_width / 100))
+        [ "$filled" -gt "$bar_width" ] && filled="$bar_width"
+        empty_n=$((bar_width - filled))
+        printf -v bar '%*s' "$filled" ''
+        bar="${bar// /█}"
+        printf -v empty '%*s' "$empty_n" ''
+        empty="${empty// /░}"
+        fixed="${task} ${label} ${pct_s} [${bar}${empty}] ${sizes}  ${speed_part:+${speed_part}  }${suffix}"
+    else
+        fixed="${task} ${label} ${pct_s}  ${sizes}  ${speed_part:+${speed_part}  }${suffix}"
+    fi
+
+    # 极窄终端兜底，保证绝不换行
+    if [ "${#fixed}" -gt "$max_len" ]; then
+        fixed="${fixed:0:$max_len}"
+    fi
+    printf '\r\033[K\033[36m%s\033[0m' "$fixed" >&2
 }
 
 _apm_dl_progress_begin() { # label total servers conns [noinc]
