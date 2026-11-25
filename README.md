@@ -51,7 +51,7 @@ and openKylin.
 ## Usage
 
 ```text
-APM - Amber Package Manager 2.0.0
+APM - Amber Package Manager 2.0.1
 
 Usage:
   apm [COMMAND] [OPTIONS] [PACKAGES...]
