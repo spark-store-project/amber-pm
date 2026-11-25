@@ -64,6 +64,24 @@ args=(systemd-run --user --quiet --wait --pipe --collect)
 if [ -n "${TERM:-}" ]; then
     args+=(-E "TERM=$TERM")
 fi
+
+# 桌面会话变量必须显式传过去。systemd 用户实例不一定像旧版 host-spawn
+# 那样带着 DISPLAY/DBUS 等变量；Kylin 上 xdg-open 打开 xlsx 时，新启动的
+# WPS/LibreOffice 会因为缺少显示会话变量而无法出现（zip 通常交给已经在运行
+# 的文件管理器，所以看起来正常）。
+default_env_names=(
+    DISPLAY WAYLAND_DISPLAY XAUTHORITY
+    DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR
+    XDG_CURRENT_DESKTOP XDG_SESSION_TYPE DESKTOP_SESSION
+    XDG_SESSION_DESKTOP XDG_ACTIVATION_TOKEN
+    LANG LANGUAGE LC_ALL
+)
+for _name in "${default_env_names[@]}"; do
+    if [ -n "${!_name+x}" ]; then
+        args+=(-E "$_name=${!_name}")
+    fi
+done
+
 for _name in "${env_names[@]}"; do
     [ -n "$_name" ] || continue
     if [ -n "${!_name+x}" ]; then

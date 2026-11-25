@@ -979,7 +979,7 @@ if [ -z "${url}" ] ; then
 fi
 
 if [ -e "${url}" ] ;then
-	url=`realpath ${url}`
+	url="$(realpath -- "${url}")"
 fi
 
 detectDE
