@@ -25,9 +25,13 @@ NixOS 只声明式管理 **APM 程序本身和必要的宿主运行环境**。�
 
 整个本体通过一个声明式链接部署，没有初始化副本、程序同步或版本标记。
 激活、升级和回滚只原子切换该链接，并重建宿主桌面集成；不会安装、降级或删除
-应用/base，也不会删除用户数据。关闭 module 同样不会自动清理这些数据。
-旧程序链接可能在关闭后保留，重新启用时会更新；清理旧系统 generation 后请勿
-继续使用指向已回收 Store 路径的链接。
+应用/base，也不会删除用户数据。保留 module 的 `imports`，设置
+`programs.amber-pm.enable = false` 并激活后，会移除模块管理的
+`/var/lib/apm/apm` 符号链接，包括目标已被 GC 的悬空链接，避免商店误判已安装。
+托管链接按目标 `/nix/store/<hash-name>/share/amber-pm/apm` 的规范布局识别；只删除
+链接本身，保留实体目录、非托管链接、应用、base、数据库及兼容状态。
+重新启用会恢复本体链接与桌面集成。直接移除 module 的 `imports` 不会执行
+禁用清理，应先禁用并激活，再移除导入。
 
 APM 原来的桌面脚本会写 `/usr/share`、`/usr/local/share` 和本体下的兼容目录；
 Nix 构建改用独立的 `apm-compat` 状态。旧绝对路径仍然可读。容器只读绑定
@@ -51,6 +55,9 @@ nix-build nix/tests --no-out-link
 这些命令不会部署 `/var/lib/apm/apm`。测试复用 `tests/native-pkg-test.sh`、
 `tests/run-quoting-test.sh` 和 `tests/completion-test.sh`，并补充状态保护、
 桌面集成、运行时参数、base 初始化调用与 module 激活检查；测试状态在临时目录。
+针对性检查覆盖禁用/重启用、悬空托管链接清理和非托管数据保留、首次激活及
+手动刷新后的旧图标路径，以及两个独立 Store 输出的 CLI 默认运行入口和显式覆盖。
+Generation 检查实际执行两套 CLI 及各自的 ace-run，仅以轻量桩替代 FUSE/bwrap。
 单独运行 module 检查可用 `nix-build nix/tests/module.nix --no-out-link`。
 允许创建 user namespace 的环境还可运行
 `bash nix/tests/namespace.sh ./result`，使用临时合成 rootfs 实测容器内外链接，
@@ -139,6 +146,9 @@ polkit agent。无图形环境时仍可使用 CLI 包管理及非图形容器命
 再由管理员显式将旧本体目录移动到 `/var/lib/apm` 之外的备份位置，最后启用
 module。不要删除旧目录：早期安装可能把应用和用户改动放在旧管理 rootfs 内。
 已有 `apm-compat` 冲突同样需人工核查并备份，module 不会替换实体兼容数据。
+激活及 `amber-pm-desktop-fix`/`amber-pm-dstore-patch` 会复用
+`apm_compat_legacy_paths`，为数据库中已有且仍引用旧 `Icon=` 路径的应用修复
+兼容链接，无需额外执行 `apm update`；旧路径下已有的真实数据目录保持不变。
 
 切换到 Nix 管理后，APM 拒绝将 `apm`、`apm-conf`、`apm-compat` 作为包装卸载，
 也不允许其他 payload 经 `--force-outside-paths` 覆盖这些保留目录。旧数据库中
@@ -160,6 +170,10 @@ sudo apm remove <应用包>
 base 初始化保留包内 `ace-init`，由 Nix 的 Bash 执行，不要求宿主存在
 `/bin/bash`。当前 v2 base 的解压、时区和用户信息初始化仍由 APM 执行。
 容器使用 base 的 Bash、libc 和工具路径，不继承宿主 Nix 库/插件变量。
+每个构建的 CLI 默认调用同一 Store 输出中的 `ace-run`，因此保留的旧 CLI
+不会因系统切换 generation 而使用新版运行脚本。显式设置 `APM_RUN_EXEC`
+仍可覆盖默认入口；未设置或为空时使用该 CLI 自身的运行脚本。全局
+`/var/lib/apm/apm` 链接继续供 Spark Store 和旧路径调用者使用。
 宿主命令通过本体自带的 `host-spawn` 调用绝对 Store 路径的 `systemd-run`，
 保留图形会话变量；sudo、pkexec 和 fusermount 优先使用宿主的特权包装器。
 宿主转发显式使用 `systemd-run --expand-environment=no`，使包含 `$`、空格、
@@ -199,11 +213,12 @@ NVIDIA 配置支持 `/run/opengl-driver` 与 32 位驱动目录；仍须由宿�
 | 官方在线索引 | 隔离 `APM_ROOT` 实际 update，随包公钥通过 InRelease 签名与索引 SHA256 校验；损坏本地 deb 被 ssinstall 拒绝 |
 | 原生包管理 | 127 项本地假仓库回归：依赖、安装/升级/卸载、路径检查、ssinstall/ssaudit、乱序多版本及 epoch 候选字段一致性；公共源码及 Nix 构建包均通过，与参数及补全测试共 214 项 |
 | 容器与宿主转发 | 原参数/overlay 回归，加真实 FUSE 持久化、临时层丢弃、双实例复用和卸载清理；真实用户服务的参数及退出码检查 |
-| 真实 bubblewrap namespace | 临时合成 rootfs，实测 Store 本体/兼容数据链接、host-spawn 解释器及版本入口 |
+| 真实 bubblewrap namespace | 临时合成 rootfs，实测 Store 本体/兼容数据链接、旧图标绝对路径在 guest 与 `/host` 中解析、host-spawn 解释器及版本入口 |
 | base 初始化入口 | 临时脚本验证解释器、PACKAGE_NAME、失败保留 tarball；已安装的真实 ace-init 在隔离命名空间中完成合成 payload 首次初始化及升级 |
 | 官方完整 base | 在只读宿主、私有 `/var/lib/apm` 的隔离环境中，`ssinstall` 校验并安装 trixie 13.9.9，`upgrade` 升级至 13.10.11；真实 ace-init 解压与初始化通过，保留 rootfs 内自建数据及其他应用数据；升级后 FUSE 容器及 host-spawn 实际运行通过 |
-| module | 配置求值，临时目录实际执行激活，验证冲突拒绝、幂等、切换及回滚保留数据 |
-| 桌面集成 | 临时应用实际生成入口、MIME 缓存，检查重复执行及卸载清理 |
+| module | 启用/禁用配置求值，临时目录实际执行激活，验证冲突拒绝、幂等、切换/回滚、禁用/重启用及悬空链接清理保留数据；禁用不求值或保留 APM 包 |
+| Generation 一致性 | 构建两个独立 Store 输出，实际执行两套包装及直接 CLI，检查各自运行脚本、空值默认和显式覆盖的参数/退出码；挂载及容器边界使用桩 |
+| 桌面集成 | 临时应用实际生成入口、MIME 缓存，检查重复执行及卸载清理；激活与直接刷新修复旧图标链接，保留真实目录，隔离状态不访问宿主路径 |
 | CPU 平台 | x86_64、aarch64、loongarch64、riscv64、i686 包表达式求值；仅 x86_64 实际构建 |
 | 部署后的已有包 | bookworm、trixie 及 WeChat、WPS、Spark 提交工具环境均可执行只读命令 |
 | 图形与会话 | 两套 base 的 guest 库实际连接 Wayland、XWayland，EGL 1.5 初始化；字体匹配、PipeWire 和 portal 版本查询通过 |
@@ -219,6 +234,8 @@ systemd 用户服务，宿主包数据库、本体链接及原有应用保持不
 没有 NVIDIA 设备，真实 NVIDIA 驱动及其他 CPU 实机运行仍需对应硬件。
 Spark 只读兼容入口及多版本候选修复使用独立的新构建包验证，没有自动部署到
 宿主；需要采用这些修复时，由管理员按自己的系统变更流程重新构建并激活。
+本轮禁用清理、Generation 一致性及旧图标路径修复同样仅进行独立构建和隔离
+回归验证，没有切换宿主 module 或重跑前述音视频、认证等交互测试。
 EGL 初始化不等于硬件加速已验证：旧
 bookworm Mesa 对测试机的 Intel Xe 显卡发出驱动警告，初始化仍然成功。
 本机旧 bookworm base 还缺少 PipeWire 客户端配置与模块，因此录屏通过结果

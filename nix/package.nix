@@ -118,7 +118,8 @@ stdenvNoCC.mkDerivation {
       --replace-fail '@APM_LIB_DIR@' "$out/usr/libexec/apm"
 
     substituteInPlace "$out/usr/libexec/apm/apm-main" \
-      --replace-fail '@VERSION@' '${version}'
+      --replace-fail '@VERSION@' '${version}' \
+      --replace-fail '/var/lib/apm/apm/files/ace-run' "$body/files/ace-run"
     substituteInPlace "$out/usr/bin/amber-pm-app-uninstaller" \
       --replace-fail '@out@' "$out"
     substituteInPlace "$body/files/amber-ce-tools/bin-override/host-spawn" \
@@ -135,6 +136,8 @@ stdenvNoCC.mkDerivation {
     # NixOS has no writable /usr/share or /etc/xdg. Both existing trigger names
     # use the same idempotent integration implementation.
     cp ${./desktop-integration.sh} "$out/usr/bin/amber-pm-desktop-fix"
+    substituteInPlace "$out/usr/bin/amber-pm-desktop-fix" \
+      --replace-fail '@APM_LIB_DIR@' "$out/usr/libexec/apm"
     rm "$out/usr/bin/amber-pm-dstore-patch"
     ln -s amber-pm-desktop-fix "$out/usr/bin/amber-pm-dstore-patch"
     chmod +x "$out/usr/bin/amber-pm-desktop-fix"

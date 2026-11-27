@@ -4,6 +4,24 @@
 }:
 {
   module = import ./module.nix { inherit pkgs package; };
+  generation =
+    pkgs.runCommand "amber-pm-generation-check"
+      {
+        nativeBuildInputs = with pkgs; [
+          bash
+          coreutils
+          diffutils
+          gnugrep
+        ];
+      }
+      ''
+        bash ${./generation.sh} ${package} ${
+          package.overrideAttrs (old: {
+            version = "${old.version}-generation-test";
+          })
+        }
+        touch "$out"
+      '';
   regression =
     pkgs.runCommand "amber-pm-regression"
       {

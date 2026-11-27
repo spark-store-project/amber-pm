@@ -12,6 +12,14 @@ mkdir -p "$share" "$xdg/autostart"
 exec 9>"$compat/desktop.lock"
 flock -x 9
 
+# Activation and direct desktop refreshes must repair migrated Icon= paths
+# immediately, without needing an unrelated repository update. The packaged
+# helper uses the same mutable state directory and preserves real directories.
+_apm_lib_dir='@APM_LIB_DIR@'
+source "$_apm_lib_dir/apm-lib.sh"
+source "$_apm_lib_dir/apm-db.sh"
+apm_compat_legacy_paths
+
 # Only remove our own dangling links; never clean another package manager's
 # integration directories. This also handles files removed during upgrades.
 while IFS= read -r -d '' link; do

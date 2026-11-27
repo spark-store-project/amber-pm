@@ -1,3 +1,28 @@
+--- a/src/usr/libexec/apm/apm-lib.sh
++++ b/src/usr/libexec/apm/apm-lib.sh
+@@ -310,11 +310,11 @@
+ # 建兼容软链接，让主机桌面环境仍能解析旧绝对路径。
+ apm_compat_legacy_paths() {
+     [ -n "${APM_ROOT:-}" ] || [ "$(id -u)" = "0" ] || return 0
+-    local legacy="${APM_ROOT}/var/lib/apm/apm/files/ace-env/var/lib/apm"
++    local legacy="$APM_STATE_DIR/apm-compat/ace-env/var/lib/apm"
+     local p target link need=0
+     local -a links=()
+     for p in $(apm_db_list 2>/dev/null); do
+-        target="${APM_ROOT}/var/lib/apm/$p"
++        target="$APM_STATE_DIR/$p"
+         [ -d "$target" ] || continue
+         link="$legacy/$p"
+         # 不覆盖旧管理环境里真实存在的包目录
+@@ -339,7 +339,7 @@
+     fi
+     mkdir -p "$legacy" 2>/dev/null || return 0
+     for p in "${links[@]}"; do
+-        target="${APM_ROOT}/var/lib/apm/$p"
++        target="$APM_STATE_DIR/$p"
+         link="$legacy/$p"
+         if [ ! -e "$link" ] || [ -L "$link" ]; then
+             ln -sfn "$target" "$link" 2>/dev/null || true
 --- a/src/usr/libexec/apm/apm-install.sh
 +++ b/src/usr/libexec/apm/apm-install.sh
 @@ -11,6 +11,17 @@

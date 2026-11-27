@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Reuse upstream's tests against the installed Nix scripts. Only the harness's
-# generated interpreters, command search path and added bwrap options differ.
+# generated interpreters, command search path, Nix state paths and added bwrap
+# options differ.
 set -euo pipefail
 package=$1
 tests=$2
@@ -19,6 +20,10 @@ for script in "$work"/tests/*.sh; do
         -e "s|/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin|$PATH|g" \
         "$script"
 done
+# The Nix helper stores legacy icon links in mutable compatibility state.
+# Keep the original Icon= payloads; namespace.sh checks their logical paths.
+sed -i 's|$(state)/apm/files/ace-env/var/lib/apm/fake-app|$(state)/apm-compat/ace-env/var/lib/apm/fake-app|g' \
+    "$work/tests/native-pkg-test.sh"
 sed -i \
     -e 's|files/ace-run"|files/.ace-run-wrapped"|' \
     -e 's|files/ace-run-pkg"|files/.ace-run-pkg-wrapped"|' \
