@@ -1,0 +1,99 @@
+--- a/src/usr/bin/amber-pm-app-uninstaller
++++ b/src/usr/bin/amber-pm-app-uninstaller
+@@ -6,38 +6,63 @@
+ log.info() { echo -e "[\e[96mINFO\e[0m]:  \e[1m$*\e[0m"; }
+ log.debug()  { echo -e "[\e[32mDEBUG\e[0m]: \e[1m$*\e[0m"; }
+ 
+-# 获取原始用户（调用 pkexec 或 sudo 的用户）
+-ORIGINAL_USER="${SUDO_USER:-$USER}"
+-ORIGINAL_UID=$(id -u "$ORIGINAL_USER")
+-ORIGINAL_DISPLAY="${DISPLAY:-:0}"
+-ORIGINAL_XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
++# pkexec sanitizes the environment. Forward session values as arguments to this
++# fixed, policy-annotated entry point, then use them only as the invoking user.
++if [ "$UID" != "0" ]; then
++    exec pkexec "@out@/usr/bin/amber-pm-app-uninstaller" --apm-session \
++        "${DISPLAY:-}" "${WAYLAND_DISPLAY:-}" "${XAUTHORITY:-}" \
++        "${XDG_RUNTIME_DIR:-}" "${DBUS_SESSION_BUS_ADDRESS:-}" "$@"
++fi
+ 
+-# 以原始用户身份运行图形界面命令
++# PKEXEC_UID identifies the authenticated caller; sudo supplies SUDO_UID.
++# Do not use USER/HOME after elevation: they usually refer to root.
++ORIGINAL_UID="${PKEXEC_UID:-${SUDO_UID:-0}}"
++case "$ORIGINAL_UID" in
++    "" | *[!0-9]*) log.error "Invalid invoking user ID"; exit 1 ;;
++esac
++ORIGINAL_USER="$(id -un -- "$ORIGINAL_UID")" || exit 1
++ORIGINAL_HOME="$(getent passwd "$ORIGINAL_UID" | cut -d: -f6)"
++[ -n "$ORIGINAL_HOME" ] || exit 1
++ORIGINAL_DISPLAY="${DISPLAY:-}"
++ORIGINAL_WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}"
++ORIGINAL_XAUTHORITY="${XAUTHORITY:-}"
++ORIGINAL_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}"
++ORIGINAL_BUS="${DBUS_SESSION_BUS_ADDRESS:-}"
++if [ "${1:-}" = --apm-session ]; then
++    [ "$#" -ge 6 ] || exit 1
++    ORIGINAL_DISPLAY="$2"
++    ORIGINAL_WAYLAND_DISPLAY="$3"
++    ORIGINAL_XAUTHORITY="$4"
++    ORIGINAL_RUNTIME_DIR="$5"
++    ORIGINAL_BUS="$6"
++    shift 6
++fi
++ORIGINAL_XAUTHORITY="${ORIGINAL_XAUTHORITY:-$ORIGINAL_HOME/.Xauthority}"
++ORIGINAL_RUNTIME_DIR="${ORIGINAL_RUNTIME_DIR:-/run/user/$ORIGINAL_UID}"
++ORIGINAL_BUS="${ORIGINAL_BUS:-unix:path=$ORIGINAL_RUNTIME_DIR/bus}"
++
++# Run graphical clients under the original user's X11 or Wayland session.
++# The caller-provided session strings never become commands or root GUI state.
+ function run_as_user() {
+-    sudo -u "$ORIGINAL_USER" DISPLAY="$ORIGINAL_DISPLAY" XAUTHORITY="$ORIGINAL_XAUTHORITY" "$@"
++    sudo -u "$ORIGINAL_USER" -- env \
++        HOME="$ORIGINAL_HOME" USER="$ORIGINAL_USER" LOGNAME="$ORIGINAL_USER" \
++        DISPLAY="$ORIGINAL_DISPLAY" WAYLAND_DISPLAY="$ORIGINAL_WAYLAND_DISPLAY" \
++        XAUTHORITY="$ORIGINAL_XAUTHORITY" XDG_RUNTIME_DIR="$ORIGINAL_RUNTIME_DIR" \
++        DBUS_SESSION_BUS_ADDRESS="$ORIGINAL_BUS" "$@"
+ }
+ 
+ function zenity() {
+-    if [[ -e /usr/bin/garma ]]; then
+-        run_as_user garma "$@"
+-    else
+-        run_as_user "$(command -v zenity)" "$@"
+-    fi
++    run_as_user "$(type -P zenity)" "$@"
+ }
+ 
+ function notify-send() {
+-    local uid="$ORIGINAL_UID"
+-    sudo -u "$ORIGINAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" zenity --notification --text="$@"
++    zenity --notification --text="$*"
+ }
+ 
+-# 如果当前不是 root，则用 pkexec 重新执行并传递必要的环境变量
+-if [ "$UID" != "0" ]; then
+-    # 保存当前环境变量，通过 env 传递给 pkexec
+-    exec pkexec "$0" "$@"
+-    exit $?
+-fi
+-
+-
++[ "$#" -eq 1 ] || {
++    log.error "Usage: amber-pm-app-uninstaller <package>"
++    exit 1
++}
+ 
+ # 用户确认
+ if zenity --question --text="即将卸载 $1\n请确认" --no-wrap; then
+--- a/src/usr/bin/amber-pm-app-launcher
++++ b/src/usr/bin/amber-pm-app-launcher
+@@ -70,7 +70,7 @@
+     fi
+ 
+     log.info "Launching: $exec_cmd"
+-    ${SHELL:-bash} -c "$exec_cmd"
++    bash -c "$exec_cmd"
+ }
+ 
+ # 导出函数供 ACE 环境调用

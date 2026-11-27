@@ -347,7 +347,7 @@ apm_repo_has_pkg() {
 # 取字段值（自动拼接续行）
 apm_repo_field() { # pkg field
     [ -s "$APM_PACKAGES_FILE" ] && [ -r "$APM_PACKAGES_FILE" ] || return 1
-    awk -v p="$1" -v f="$2" '
+    apm_repo_stanza "$1" | awk -v p="$1" -v f="$2" '
         BEGIN { RS = ""; FS = "\n" }
         {
             name = ""
@@ -370,7 +370,7 @@ apm_repo_field() { # pkg field
             }
             print val
             exit
-        }' "$APM_PACKAGES_FILE"
+        }'
 }
 
 apm_repo_version() { apm_repo_field "$1" Version; }
@@ -399,9 +399,20 @@ apm_repo_names() {
 # 完整 stanza（用于 apm show）
 apm_repo_stanza() {
     [ -s "$APM_PACKAGES_FILE" ] && [ -r "$APM_PACKAGES_FILE" ] || return 0
-    awk -v p="$1" 'BEGIN{RS="";FS="\n"} {
-        for (i = 1; i <= NF; i++) if ($i == "Package: " p) { print; exit }
-    }' "$APM_PACKAGES_FILE"
+    local stanza version best="" best_version=""
+    # A standard Packages index can retain several versions in any order.
+    # All candidate fields must come from the same newest Debian version.
+    while IFS= read -r -d '' stanza; do
+        version="$(printf '%s\n' "$stanza" | awk '/^Version: / { print substr($0, 10); exit }')"
+        [ -n "$version" ] || continue
+        if [ -z "$best" ] || apm_vercmp_gt "$version" "$best_version"; then
+            best="$stanza"
+            best_version="$version"
+        fi
+    done < <(awk -v p="$1" 'BEGIN{RS="";FS="\n"} {
+        for (i = 1; i <= NF; i++) if ($i == "Package: " p) { printf "%s%c", $0, 0; break }
+    }' "$APM_PACKAGES_FILE")
+    [ -z "$best" ] || printf '%s\n' "$best"
 }
 
 # 搜索（名称或描述，忽略大小写）

@@ -1,10 +1,11 @@
-{
+args@{
   lib,
   stdenvNoCC,
   makeWrapper,
   aria2,
   bash,
   bubblewrap,
+  bzip2,
   coreutils,
   curl,
   desktop-file-utils,
@@ -13,42 +14,51 @@
   file,
   findutils,
   fuse-overlayfs,
+  fuse3,
   gawk,
+  getent,
   glib,
   gnugrep,
+  gnupg,
   gnused,
+  gnutar,
   gzip,
   libnotify,
+  polkit,
   procps,
+  shared-mime-info,
   sudo,
   systemd,
-  gnutar,
   util-linux,
   which,
   xdg-user-dirs,
+  xdg-utils,
   xz,
   zenity,
+  zstd,
   version ? "2.0.1",
   sourceRoot ? ../.,
-  src ? lib.cleanSourceWith {
-    src = sourceRoot;
-    filter =
-      path: type:
-      let
-        base = baseNameOf path;
-      in
-      ! lib.elem base [
-        ".git"
-        "result"
-      ];
-  },
+  ...
 }:
 
 let
+  # Keep src out of functionArgs: some nixpkgs releases expose an unrelated
+  # pkgs.src alias that callPackage would otherwise inject automatically.
+  src =
+    args.src or (lib.cleanSourceWith {
+      src = sourceRoot;
+      filter =
+        path: type:
+        !(lib.elem (baseNameOf path) [
+          ".git"
+          "result"
+        ]);
+    });
   runtimePath = lib.makeBinPath [
     aria2
     bash
     bubblewrap
+    bzip2
     coreutils
     curl
     desktop-file-utils
@@ -57,146 +67,120 @@ let
     file
     findutils
     fuse-overlayfs
+    fuse3
     gawk
+    getent
     glib
+    glib.dev
     gnugrep
-    gnused
-    gzip
     gnupg
-    zstd
+    gnused
+    gnutar
+    gzip
     libnotify
+    polkit
     procps
+    shared-mime-info
     sudo
     systemd
-    gnutar
     util-linux
     which
     xdg-user-dirs
+    xdg-utils
     xz
     zenity
+    zstd
   ];
 in
 stdenvNoCC.mkDerivation {
   pname = "amber-pm";
-  inherit version;
-
-  inherit src;
-
+  inherit version src;
+  patches = [
+    ./runtime.patch
+    ./state.patch
+    ./host.patch
+  ];
   nativeBuildInputs = [ makeWrapper ];
-
   dontConfigure = true;
   dontBuild = true;
+  # Only host executables receive Nix interpreters. Scripts shipped for the
+  # Debian base (including generated maintainer scripts) keep their shebangs.
+  dontPatchShebangs = true;
 
   installPhase = ''
     runHook preInstall
+    mkdir -p "$out/bin" "$out/usr" "$out/share/amber-pm"
+    cp -a src/usr/. "$out/usr/"
+    cp -a src/var/lib/apm/apm "$out/share/amber-pm/apm"
+    body="$out/share/amber-pm/apm"
+    install -m 0755 ${./spark-uri-compat.sh} "$out/usr/bin/amber-pm-debug"
+    substituteInPlace "$out/usr/bin/amber-pm-debug" \
+      --replace-fail '@APM_LIB_DIR@' "$out/usr/libexec/apm"
 
-    echo "copying Debian-style install tree"
-    mkdir -p "$out"
-    cp -a src/* "$out"/
-
-    rm -f "$out/usr/bin/apm" \
-      "$out/usr/bin/amber-pm-configure-nvidia"
-
-    echo "substituting version and store paths"
     substituteInPlace "$out/usr/libexec/apm/apm-main" \
       --replace-fail '@VERSION@' '${version}' \
-      --replace-fail '/usr/libexec/apm/apm-eggs' "$out/usr/libexec/apm/apm-eggs"
+      --replace-fail '/var/lib/apm/apm/files/ace-run' "$body/files/ace-run"
+    substituteInPlace "$out/usr/bin/amber-pm-app-uninstaller" \
+      --replace-fail '@out@' "$out"
+    substituteInPlace "$body/files/amber-ce-tools/bin-override/host-spawn" \
+      --replace-fail '@systemd@' '${systemd}' \
+      --replace-fail '@coreutils@' '${coreutils}' \
+      --replace-fail '@bash@' '${bash}'
+    substituteInPlace "$body/files/bin/ace-gxde-fixer" \
+      --replace-fail 'pkexec "$0"' "pkexec \"$body/files/bin/ace-gxde-fixer\""
 
-    while IFS= read -r -d "" file; do
-      if grep -Iq '@VERSION@' "$file" && grep -q '@VERSION@' "$file"; then
-        sed -i 's|@VERSION@|${version}|g' "$file"
-      fi
-    done < <(find "$out/usr" "$out/etc" -type f -print0)
+    # These are the only writable paths below the historical APM body. Keep
+    # the paths used by Spark/old desktop files, but place their data in state.
+    ln -s /var/lib/apm/apm-compat/ace-env "$body/files/ace-env"
 
-    echo "patching host script shebangs"
-    patchShebangs "$out/usr/bin" "$out/usr/libexec"
-    patchShebangs \
-      "$out/var/lib/apm/apm/files/ace-run" \
-      "$out/var/lib/apm/apm/files/ace-run-pkg" \
-      "$out/var/lib/apm/apm/files/bin/amber-ce-configure-nvidia" \
-      "$out/var/lib/apm/apm/files/build-container.sh" \
-      "$out/var/lib/apm/apm/files/feedback.sh" \
-      "$out/var/lib/apm/apm/files/amber-ce-tools/ace-upgrader/ace-upgrader" \
-      "$out/var/lib/apm/apm/files/amber-ce-tools/container-init/init.sh" \
-      "$out/var/lib/apm/apm/files/amber-ce-tools/bin-override/host-spawn" \
-      "$out/var/lib/apm/apm/files/amber-ce-tools/bin-override/apm-debug" \
-      "$out/var/lib/apm/apm/files/amber-ce-tools/bin-override/bwrap" \
-      "$out/var/lib/apm/apm/files/amber-ce-tools/bin-override/gio" \
-      "$out/var/lib/apm/apm/files/amber-ce-tools/bin-override/pkexec" \
-      "$out/var/lib/apm/apm/files/amber-ce-tools/bin-override/sudo" \
-      "$out/var/lib/apm/apm/files/amber-ce-tools/bin-override/xdg-open"
+    # NixOS has no writable /usr/share or /etc/xdg. Both existing trigger names
+    # use the same idempotent integration implementation.
+    cp ${./desktop-integration.sh} "$out/usr/bin/amber-pm-desktop-fix"
+    substituteInPlace "$out/usr/bin/amber-pm-desktop-fix" \
+      --replace-fail '@APM_LIB_DIR@' "$out/usr/libexec/apm"
+    rm "$out/usr/bin/amber-pm-dstore-patch"
+    ln -s amber-pm-desktop-fix "$out/usr/bin/amber-pm-dstore-patch"
+    chmod +x "$out/usr/bin/amber-pm-desktop-fix"
 
-    echo "installing wrappers"
-    mkdir -p "$out/bin" "$out/share/amber-pm/var-lib-apm"
-    ln -s /var/lib/apm/apm/files/bin/amber-ce-configure-nvidia "$out/bin/amber-pm-configure-nvidia"
+    # Use Store targets for installed commands, retaining the historical
+    # /var/lib/apm/apm paths for old callers.
+    rm -f "$out/usr/bin/apm" "$out/usr/bin/amber-pm-configure-nvidia"
+    ln -s "$body/files/bin/amber-ce-configure-nvidia" "$out/usr/bin/amber-pm-configure-nvidia"
+    patchShebangs "$out/usr/bin" "$out/usr/libexec" \
+      "$body/files/ace-run" "$body/files/ace-run-pkg" \
+      "$body/files/bin/amber-ce-configure-nvidia" "$body/files/bin/ace-gxde-fixer" \
+      "$body/files/feedback.sh" "$body/files/amber-ce-tools/bin-override"
 
-    for prog in "$out"/usr/bin/*; do
-      if [ -f "$prog" ] || [ -L "$prog" ]; then
-        name="$(basename "$prog")"
-        if [ "$name" != apm ] \
-          && [ "$name" != amber-pm-configure-nvidia ]; then
-          makeWrapper "$prog" "$out/bin/$name" \
-            --prefix PATH : "$out/bin:${runtimePath}"
-        fi
-      fi
+    # Legacy direct invocations and sudo -E from the conversion tools cannot
+    # depend on the interactive PATH. Prefer NixOS's privileged wrappers to
+    # the non-setuid Store binaries.
+    for prog in "$body/files/ace-run" "$body/files/ace-run-pkg" \
+      "$body/files/bin/amber-ce-configure-nvidia" "$body/files/bin/ace-gxde-fixer"; do
+      wrapProgram "$prog" --prefix PATH : "/run/wrappers/bin:$out/bin:${runtimePath}"
     done
-
-    cp -a "$out/var/lib/apm/apm" "$out/share/amber-pm/var-lib-apm/apm"
-    rm -rf "$out/var"
-
+    for prog in "$out"/usr/bin/*; do
+      makeWrapper "$prog" "$out/bin/$(basename "$prog")" \
+        --prefix PATH : "/run/wrappers/bin:$out/bin:${runtimePath}"
+    done
     makeWrapper "$out/usr/libexec/apm/apm-main" "$out/bin/apm" \
-      --prefix PATH : "$out/bin:${runtimePath}"
+      --prefix PATH : "/run/wrappers/bin:$out/bin:${runtimePath}"
 
-    cat > "$out/bin/amber-pm-init-state" <<'EOF'
-#!@bash@/bin/bash
-set -euo pipefail
-
-if [ "''${1:-}" = "--help" ]; then
-  echo "Usage: amber-pm-init-state [--force]"
-  echo "Initializes /var/lib/apm/apm from the Nix store seed."
-  exit 0
-fi
-
-if [ "$(id -u)" != 0 ]; then
-  echo "amber-pm-init-state must be run as root because it writes /var/lib/apm" >&2
-  exit 1
-fi
-
-seed="@out@/share/amber-pm/var-lib-apm/apm"
-target="/var/lib/apm/apm"
-
-mkdir -p /var/lib/apm
-if [ -e "$target" ] && [ "''${1:-}" != "--force" ]; then
-  echo "$target already exists; leaving it untouched."
-  echo "Run 'amber-pm-init-state --force' to refresh APM's own files."
-  exit 0
-fi
-
-mkdir -p "$target"
-cp -a "$seed"/. "$target"/
-echo '@version@' > "$target/.amber-pm-version"
-chmod -R u+rwX "$target"
-echo "Initialized $target"
-echo "Next step: run 'apm update' to fetch the package index, or 'apm --help'."
-EOF
-    substituteInPlace "$out/bin/amber-pm-init-state" \
-      --replace-fail '@bash@' '${bash}' \
-      --replace-fail '@out@' "$out" \
-      --replace-fail '@version@' '${version}'
-    chmod +x "$out/bin/amber-pm-init-state"
-
+    # Register through normal NixOS package mechanisms. Keep libexec and the
+    # keyring together for apm_repo_keyring's existing relative fallback.
+    cp -a "$out/usr/share"/. "$out/share/"
+    substituteInPlace "$out/share/polkit-1/actions/store.spark-app.apm-uninstaller.policy" \
+      --replace-fail '/usr/bin/amber-pm-app-uninstaller' "$out/usr/bin/amber-pm-app-uninstaller"
+    # pkexec invokes the annotated script with a minimal PATH.
+    wrapProgram "$out/usr/bin/amber-pm-app-uninstaller" \
+      --prefix PATH : "/run/wrappers/bin:$out/bin:${runtimePath}"
     runHook postInstall
   '';
 
   meta = {
-    description = "bwrap and fuse-overlayfs based package manager for Debian-style application containers";
+    description = "Package manager for applications in bubblewrap and FUSE overlay containers";
     homepage = "https://gitee.com/amber-ce/amber-pm/";
     license = lib.licenses.gpl3Only;
-    platforms = [
-      "x86_64-linux"
-      "aarch64-linux"
-      "loongarch64-linux"
-    ];
-    maintainers = [ ];
+    platforms = lib.platforms.linux;
+    mainProgram = "apm";
   };
 }
