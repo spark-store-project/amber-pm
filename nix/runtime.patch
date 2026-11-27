@@ -1,0 +1,218 @@
+--- a/src/usr/libexec/apm/apm-install.sh
++++ b/src/usr/libexec/apm/apm-install.sh
+@@ -236,7 +236,9 @@
+     fi
+ 
+     log.info "$(apm_t "正在初始化 base 环境 $pkg（解压 rootfs 可能需要几分钟）..." "Initializing base environment $pkg (extracting rootfs may take a few minutes)...")"
+-    if PACKAGE_NAME="$pkg" "$init"; then
++    # Downloaded base init scripts use /bin/bash, which need not exist on NixOS.
++    # Keep the package's executable check, payload and initialization semantics.
++    if PACKAGE_NAME="$pkg" bash "$init"; then
+         rm -f -- "$tarxz"
+         log.info "$(apm_t "base 环境 $pkg 初始化完成" "Base environment $pkg initialized")"
+         return 0
+--- a/src/var/lib/apm/apm/files/ace-run
++++ b/src/var/lib/apm/apm/files/ace-run
+@@ -62,8 +62,9 @@
+     --setenv PATH "$container_path"
+     --setenv IS_ACE_ENV 1
+     --setenv GTK_USE_PORTAL 1
+-    --setenv XDG_DATA_DIRS "/amber-ce-tools/additional-data-dir-in-container:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+-    --setenv XCURSOR_PATH "/host/usr/share/icons:/host/usr/share/cursors:/usr/share/icons:/usr/share/cursors:${XCURSOR_PATH:-}"
++    --setenv XDG_DATA_DIRS /amber-ce-tools/additional-data-dir-in-container:/usr/local/share:/usr/share
++    --setenv XDG_CONFIG_DIRS /etc/xdg
++    --setenv XCURSOR_PATH "/host/run/current-system/sw/share/icons:/host/usr/share/icons:/host/usr/share/cursors:/usr/share/icons:/usr/share/cursors:${XCURSOR_PATH:-}"
+ )
+ 
+ # --- 主机 PipeWire 客户端运行文件（Wayland 屏幕共享需要） ---------------------
+@@ -123,6 +124,9 @@
+     --dev-bind-try /usr/share/icons /usr/local/share/icons
+     --dev-bind-try /usr/share/fonts /usr/local/share/fonts
+     --dev-bind-try /usr/share/themes /usr/share/themes
++    --ro-bind-try /run/current-system/sw/share/icons /usr/local/share/icons
++    --ro-bind-try /run/current-system/sw/share/themes /usr/local/share/themes
++    --ro-bind-try /etc/fonts /etc/fonts
+     --dev-bind-try /home /home
+     --dev-bind-try "$HOME/.apm/${APM_PKG_NAME}/.deepinwine" "$HOME/.deepinwine"
+ )
+--- a/src/var/lib/apm/apm/files/ace-run-lib.sh
++++ b/src/var/lib/apm/apm/files/ace-run-lib.sh
+@@ -74,18 +74,15 @@
+ # 容器内的 PATH（保持旧行为：优先使用 /amber-ce-tools/bin-override）。
+ # 如果 APM 包自带新的 host-spawn 脚本，则在最前面插入 /host 下的工具目录。
+ ace_container_path() {
+-    local host_path="${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
+     local host_tools=""
+     host_tools="$(ace_host_tools_dir 2>/dev/null || true)"
+     local prefix=""
+     if [ -n "$host_tools" ]; then
+         prefix="/host$host_tools:"
+     fi
+-    if ace_is_nixos; then
+-        printf '%s' "${prefix}/amber-ce-tools/bin-override:/usr/local/bin:/usr/bin/"
+-    else
+-        printf '%s' "${prefix}/amber-ce-tools/bin-override:${host_path}"
+-    fi
++    # Host wrappers carry a Nix PATH even on other Linux distributions. Only
++    # guest tools belong in the guest PATH; APM_HOST_PATH is used by the bridge.
++    printf '%s' "${prefix}/amber-ce-tools/bin-override:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ }
+ 
+ # 当前桌面会话的 uid：PULSE_SERVER 与 /run/user/<uid>/pulse 绑定都需要它。
+@@ -151,6 +148,23 @@
+     local -a argv=(bwrap --dev-bind / /)
+     argv+=("${ACE_BWRAP_SETENV[@]}")
+     argv+=("${ACE_BWRAP_BINDS[@]}")
++    # Store shebangs and absolute symlinks below /host need their original
++    # locations. Keep APM's mutable compatibility links valid in both views.
++    argv+=(--ro-bind /nix/store /nix/store
++           --dev-bind-try /var/lib/apm /var/lib/apm
++           --setenv APM_HOST_PATH "$PATH"
++           --setenv SHELL /bin/bash)
++    # Host plugin/loader settings refer to a different libc and toolkit stack.
++    # The guest uses its own libraries; the host bridge preserves session vars.
++    local name
++    for name in LD_LIBRARY_PATH LD_PRELOAD NIX_LD NIX_LD_LIBRARY_PATH \
++                GIO_EXTRA_MODULES GDK_PIXBUF_MODULE_FILE GTK_PATH GTK_MODULES \
++                GTK_EXE_PREFIX GTK_DATA_PREFIX QT_PLUGIN_PATH \
++                QT_QPA_PLATFORM_PLUGIN_PATH QML2_IMPORT_PATH QML_IMPORT_PATH \
++                GSETTINGS_SCHEMA_DIR GI_TYPELIB_PATH GIO_MODULE_DIR \
++                GTK_IM_MODULE_FILE LOCPATH GCONV_PATH; do
++        argv+=(--unsetenv "$name")
++    done
+     if [ "${#ACE_BWRAP_EXTRA[@]}" -gt 0 ]; then
+         argv+=("${ACE_BWRAP_EXTRA[@]}")
+     fi
+--- a/src/var/lib/apm/apm/files/ace-run-pkg
++++ b/src/var/lib/apm/apm/files/ace-run-pkg
+@@ -41,7 +41,8 @@
+     --setenv PATH "$container_path"
+     --setenv IS_ACE_ENV 1
+     --setenv GTK_USE_PORTAL 1
+-    --setenv XDG_DATA_DIRS "/amber-ce-tools/additional-data-dir-in-container:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
++    --setenv XDG_DATA_DIRS /amber-ce-tools/additional-data-dir-in-container:/usr/local/share:/usr/share
++    --setenv XDG_CONFIG_DIRS /etc/xdg
+ )
+ 
+ ACE_BWRAP_BINDS=(
+--- a/src/var/lib/apm/apm/files/amber-ce-tools/bin-override/bwrap
++++ b/src/var/lib/apm/apm/files/amber-ce-tools/bin-override/bwrap
+@@ -1,3 +1,3 @@
+ #!/bin/bash
+ # 旧版这里调用的是不存在的 ace-run-bwrap；现在明确转到主机 bwrap
+-exec host-spawn /usr/bin/bwrap "$@"
++exec host-spawn bwrap "$@"
+--- a/src/var/lib/apm/apm/files/amber-ce-tools/bin-override/host-spawn
++++ b/src/var/lib/apm/apm/files/amber-ce-tools/bin-override/host-spawn
+@@ -51,14 +51,17 @@
+             ;;
+     esac
+ done
+-[ $# -gt 0 ] || set -- /bin/bash
++[ $# -gt 0 ] || set -- @bash@/bin/bash
+ 
+-if ! command -v systemd-run >/dev/null 2>&1; then
++if [ ! -x @systemd@/bin/systemd-run ]; then
+     echo "host-spawn: 找不到 systemd-run，无法在主机执行命令（需要 systemd 用户实例）" >&2
+     exit 127
+ fi
+ 
+-args=(systemd-run --user --quiet --wait --pipe --collect)
++args=(@systemd@/bin/systemd-run --user --quiet --wait --pipe --collect --expand-environment=no)
++# A separate variable carries the host search path without exposing it as the
++# container PATH. Keep privilege wrappers before unprivileged Store binaries.
++args+=(-E "PATH=/run/wrappers/bin:${APM_HOST_PATH:-/run/current-system/sw/bin}")
+ 
+ # TERM 是 host-spawn 默认传递的变量
+ if [ -n "${TERM:-}" ]; then
+@@ -94,6 +97,6 @@
+     args+=(--working-directory="$PWD")
+ fi
+ 
+-# 关键：systemd-run 会在容器内解析可执行文件路径，所以用主机 /usr/bin/env
+-# 让它走主机的 PATH（例如 fastfetch 只装在主机、base 里没有）。
+-exec "${args[@]}" -- /usr/bin/env "$@"
++# systemd-run resolves its executable in the guest, so use an absolute Store
++# env present in both namespaces. Command lookup then happens on the host.
++exec "${args[@]}" -- @coreutils@/bin/env "$@"
+--- a/src/var/lib/apm/apm/files/bin/amber-ce-configure-nvidia
++++ b/src/var/lib/apm/apm/files/bin/amber-ce-configure-nvidia
+@@ -27,18 +27,25 @@
+ 
+ # 3. 检查容器内驱动版本是否与宿主机一致
+ version_file="$ACE_DIR/amber-ce-tools/nvidia_current_version"
+-if [ -f "$version_file" ] && [ "$(cat "$version_file")" = "$nvidia_version" ]; then
+-#    log.info "容器内 NVIDIA 驱动版本 ($nvidia_version) 与宿主机一致，无需重新链接"
+-#    log.info "Driver version in container matches host version, no need to relink"
+-    exit 0
+-fi
++# Refresh even for the same version: a Nix generation can replace its Store
++# paths without changing the upstream driver version.
+ 
+ mkdir -p "$ACE_DIR/usr/lib" "$ACE_DIR/usr/lib32"
+ 
+ log.info "正在链接 NVIDIA 驱动库 Linking NVIDIA Driver Libs"
+ 
+ # 4. 收集库文件路径
+-lib_list=$(ldconfig -p | grep -Ei "nvidia|libcuda|libvdpau_nvidia|libnvcuvid|libnvencode|libnvidia-encode" | cut -d'>' -f2)
++lib_list=$(
++    for driver_dir in /run/opengl-driver/lib /run/opengl-driver-32/lib; do
++        [ -d "$driver_dir" ] || continue
++        find -L "$driver_dir" -maxdepth 1 \( -type f -o -type l \) \
++            \( -name '*nvidia*.so*' -o -name 'libcuda.so*' \
++            -o -name 'libnvcuvid.so*' -o -name 'libnvencode*.so*' \) -print
++    done
++    if [ ! -d /run/opengl-driver/lib ] && command -v ldconfig >/dev/null 2>&1; then
++        ldconfig -p | grep -Ei "nvidia|libcuda|libvdpau_nvidia|libnvcuvid|libnvencode|libnvidia-encode" | cut -d'>' -f2
++    fi
++)
+ 
+ # 5. 复制库文件
+ copied=0
+@@ -50,14 +57,14 @@
+     resolved=$(readlink -f "$lib") # 解析符号链接
+     filename=$(basename "$lib")
+     if file "$resolved" | grep -q "32-bit"; then
+-        ln -sf "/host/$resolved" "$ACE_DIR/usr/lib32/$filename"
++        ln -sf "/host$lib" "$ACE_DIR/usr/lib32/$filename"
+         has_32bit=true
+-        log.debug "创建32位链接: $ACE_DIR/usr/lib32/$filename -> /host/$resolved"
++        log.debug "创建32位链接: $ACE_DIR/usr/lib32/$filename -> /host$lib"
+     else
+-        ln -sf "/host/$resolved" "$ACE_DIR/usr/lib/$filename"
++        ln -sf "/host$lib" "$ACE_DIR/usr/lib/$filename"
+         has_64bit=true
+         copied=1
+-        log.debug "创建64位链接: $ACE_DIR/usr/lib/$filename -> /host/$resolved"
++        log.debug "创建64位链接: $ACE_DIR/usr/lib/$filename -> /host$lib"
+     fi
+     
+     # 检查是否是GLX库
+@@ -68,6 +75,11 @@
+ 
+ # 6. 复制辅助文件
+ additional_files=(
++    /run/opengl-driver/share/vulkan/icd.d/nvidia*.json
++    /run/opengl-driver-32/share/vulkan/icd.d/nvidia*.json
++    /run/opengl-driver/share/vulkan/implicit_layer.d/*nvidia*.json
++    /run/opengl-driver/share/egl/egl_external_platform.d/*nvidia*.json
++    /run/opengl-driver/share/glvnd/egl_vendor.d/*nvidia*.json
+     /usr/share/vulkan/icd.d/nvidia_icd.json
+     /usr/share/vulkan/icd.d/nvidia_icd.x86_64.json
+     /usr/share/vulkan/icd.d/nvidia_icd.aarch64.json
+@@ -81,9 +93,13 @@
+     if [ -f "$file" ]; then
+         resolved=$(readlink -f "$file")
+         dir=$(dirname "$file")
++        # The JSON remains on the host, while the guest discovers it via its
++        # conventional data prefix. Absolute Store library paths also resolve.
++        dir="${dir/#\/run\/opengl-driver\/share/\/usr\/share}"
++        dir="${dir/#\/run\/opengl-driver-32\/share/\/usr\/share}"
+         mkdir -p "$ACE_DIR/$dir"
+-        ln -sf "/host/$resolved" "$ACE_DIR/$dir/$(basename "$file")"
+-        log.debug "复制配置文件: $ACE_DIR/$dir/$(basename "$file") -> /host/$resolved"
++        ln -sf "/host$file" "$ACE_DIR/$dir/$(basename "$file")"
++        log.debug "复制配置文件: $ACE_DIR/$dir/$(basename "$file") -> /host$file"
+     fi
+ done
+ 

@@ -1,0 +1,137 @@
+--- a/src/usr/libexec/apm/apm-install.sh
++++ b/src/usr/libexec/apm/apm-install.sh
+@@ -11,6 +11,17 @@
+ # 小工具
+ # ---------------------------------------------------------------------------
+ apm_pkg_root() { printf '%s/var/lib/apm/%s\n' "$APM_ROOT" "$1"; }
++
++# Old files.list records may predate the Nix ownership boundary. Application
++# removal and upgrades must not unlink the program or erase its private state.
++_apm_nix_protected_path() {
++    case "$1" in
++        /var/lib/apm/apm | /var/lib/apm/apm/* | \
++        /var/lib/apm/apm-conf | /var/lib/apm/apm-conf/* | \
++        /var/lib/apm/apm-compat | /var/lib/apm/apm-compat/*) return 0 ;;
++    esac
++    return 1
++}
+ 
+ # 当前登录/所有用户的家目录（卸载时清理 ~/.apm/<包名>）
+ apm_home_dirs() {
+@@ -268,6 +279,7 @@
+         [ -n "$f" ] || continue
+         grep -Fxq -- "$f" "$new_list" 2>/dev/null && continue
+         grep -Fxq -- "$f" "$other" 2>/dev/null && continue
++        _apm_nix_protected_path "$f" && continue
+         rm -f -- "${APM_ROOT}${f}" 2>/dev/null || true
+     done < "$old_list"
+     rm -f -- "$old_list" "$other"
+@@ -289,6 +301,14 @@
+ apm_install_deb() {
+     local deb="$1" pkg="$2" auto="${3:-0}" mode="${4:-install}"
+     local force_outside="${5:-0}"
++
++    # The Nix package owns the program; APM owns only applications and bases.
++    case "$pkg" in
++        apm | apm-conf | apm-compat)
++            log.error "$(apm_t "此路径由 Nix 或 APM 状态管理，不能作为软件包安装: $pkg" "This path is managed by Nix or reserved for APM state, and cannot be installed as a package: $pkg")"
++            return 1
++            ;;
++    esac
+ 
+     [ -f "$deb" ] || {
+         log.error "$(apm_t "deb 不存在: $deb" "deb not found: $deb")"
+@@ -319,6 +339,18 @@
+         log.error "$(apm_t "$pkg: deb 解包失败" "$pkg: failed to unpack deb")"
+         return 1
+     }
++
++    # Even --force-outside-paths must not replace the declarative program link
++    # or overwrite the package manager's private state. Check directories too:
++    # cp -a can otherwise change metadata through an existing directory link.
++    local reserved
++    for reserved in apm apm-conf apm-compat; do
++        if [ -e "$staging/var/lib/apm/$reserved" ] || [ -L "$staging/var/lib/apm/$reserved" ]; then
++            log.error "$(apm_t "软件包试图写入受保护的 APM 路径: $reserved" "Package tried to write to a protected APM path: $reserved")"
++            rm -rf -- "$staging" "$listfile"
++            return 1
++        fi
++    done
+ 
+     if [ -n "$violations" ]; then
+         if [ "$force_outside" != "1" ]; then
+@@ -694,6 +726,12 @@
+ 
+ apm_remove_pkg() { # 包名 [force]
+     local pkg="$1" force="${2:-0}"
++    case "$pkg" in
++        apm | apm-conf | apm-compat)
++            log.error "$(apm_t "此路径由 Nix 或 APM 状态管理，不能作为软件包卸载: $pkg" "This path is managed by Nix or reserved for APM state, and cannot be removed as a package: $pkg")"
++            return 1
++            ;;
++    esac
+     apm_db_installed "$pkg" || {
+         log.error "$(printf "$(apm_tk remove.not_installed "未安装: %s" "Not installed: %s")" "$pkg")"
+         return 1
+@@ -735,6 +773,7 @@
+         # 一次 awk 建共享文件表，避免对每个文件 grep 整个 other 列表
+         awk 'NR==FNR { seen[$0]=1; next } !($0 in seen)' "$other" "$outside" |
+             while IFS= read -r f; do
++                _apm_nix_protected_path "$f" && continue
+                 rm -f -- "${APM_ROOT}${f}" 2>/dev/null || true
+             done
+         rm -f -- "$other"
+@@ -1251,6 +1290,7 @@
+     # 为所有带 rootfs 的包配置 NVIDIA 驱动
+     local d
+     for d in "$APM_STATE_DIR"/*/files/ace-env; do
++        [ "$d" = "$APM_STATE_DIR/apm/files/ace-env" ] && continue
+         [ -d "$d" ] || continue
+         if [ "$mode" != "remove" ] && command -v amber-pm-configure-nvidia >/dev/null 2>&1; then
+             amber-pm-configure-nvidia "$d" >/dev/null 2>&1 || true
+--- a/src/usr/libexec/apm/apm-deb.sh
++++ b/src/usr/libexec/apm/apm-deb.sh
+@@ -130,6 +130,11 @@
+ _apm_path_allowed() { # 类型 路径 包名
+     local type="$1" p="$2" pkg="$3"
+     case "$p" in
++        var/lib/apm/apm | var/lib/apm/apm/* | \
++        var/lib/apm/apm-conf | var/lib/apm/apm-conf/* | \
++        var/lib/apm/apm-compat | var/lib/apm/apm-compat/*)
++            return 1
++            ;;
+         var | var/lib | var/lib/apm)
+             [ "$type" = "d" ] && return 0
+             return 1
+--- a/src/usr/libexec/apm/apm-migrate.sh
++++ b/src/usr/libexec/apm/apm-migrate.sh
+@@ -91,6 +91,10 @@
+     apm_state_init
+ 
+     local oldenv="$APM_STATE_DIR/apm/files/ace-env"
++    if [ -L "$oldenv" ]; then
++        log.error "$(apm_t "APM 已由 Nix 管理；请在启用模块前使用旧安装完成迁移。兼容状态已保留。" "APM is managed by Nix; migrate the old installation before enabling the module. Compatibility state has been preserved.")"
++        return 1
++    fi
+     local old_pkgs="$oldenv/var/lib/apm"
+     local migrated=0 moved=0 skipped=0 adopted=0 migrate_failed=0
+ 
+--- a/src/usr/libexec/apm/apm-db.sh
++++ b/src/usr/libexec/apm/apm-db.sh
+@@ -13,6 +13,8 @@
+ }
+ 
+ apm_db_installed() {
++    # Ignore legacy self-install records without deleting user state.
++    [ "$1" != apm ] || return 1
+     [ -f "$(apm_db_pkg_dir "$1")/status" ]
+ }
+ 
+@@ -39,6 +41,7 @@
+         [ -f "${d}status" ] || continue
+         # 用参数展开代替 basename，避免每个包启动一个外部进程
+         d="${d%/}"
++        [ "${d##*/}" = apm ] && continue
+         printf '%s\n' "${d##*/}"
+     done
+ }
