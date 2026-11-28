@@ -107,6 +107,16 @@ if _ace_needs_host_pipewire; then
 fi
 
 # --- 目录绑定 ----------------------------------------------------------------
+# 主机图标/字体/主题是可选集成，只有目标目录已经存在于容器根文件系统时才绑定。
+# --dev-bind-try 只容忍“源”不存在：目标缺失时 bwrap 会尝试在容器里创建它，而
+# /usr/local/share、/usr/share 属于 root，普通用户无法写入，bwrap 会以
+# "Can't mkdir parents" 直接失败退出，整个应用都打不开（base 升级后空目录被
+# 清理、或旧包把 /usr/local/share 打成 0700 时都会触发）。
+_ace_bind_host_resource() { # 主机源 容器目标
+    [ -e "${chrootEnvPath%/}$2" ] || return 0
+    ACE_BWRAP_BINDS+=(--dev-bind-try "$1" "$2")
+}
+
 ACE_BWRAP_BINDS=(
     --dev-bind "${chrootEnvPath%/}/" /
     --dev-bind-try /media /media
@@ -120,12 +130,13 @@ ACE_BWRAP_BINDS=(
     --dev-bind-try "/run/user/${uid}/pulse" "/run/user/${uid}/pulse"
     --dev-bind / /host
     --dev-bind-try /etc/resolv.conf /etc/resolv.conf
-    --dev-bind-try /usr/share/icons /usr/local/share/icons
-    --dev-bind-try /usr/share/fonts /usr/local/share/fonts
-    --dev-bind-try /usr/share/themes /usr/share/themes
     --dev-bind-try /home /home
     --dev-bind-try "$HOME/.apm/${APM_PKG_NAME}/.deepinwine" "$HOME/.deepinwine"
 )
+
+_ace_bind_host_resource /usr/share/icons /usr/local/share/icons
+_ace_bind_host_resource /usr/share/fonts /usr/local/share/fonts
+_ace_bind_host_resource /usr/share/themes /usr/share/themes
 
 if [ "${APM_USE_SANDBOX:-0}" = "1" ]; then
     ACE_BWRAP_BINDS+=(--dev-bind-try "$HOME/.apm/${APM_PKG_NAME}/" "$HOME/")

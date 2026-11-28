@@ -215,6 +215,23 @@ apm_fetch_deb() { # 包名 -> 本地 deb 路径
 # ---------------------------------------------------------------------------
 # base 包初始化
 # ---------------------------------------------------------------------------
+# base 环境运行时需要的空目录：ace-run 会把主机目录绑定到这些位置，bwrap 的
+# --dev-bind-try 只容忍“源”缺失，目标不存在又无法创建时会让整个启动失败。
+# 旧版本升级时曾把这些空目录当垃圾清掉，这里保证它们存在（不存在才创建）。
+apm_base_ensure_dirs() { # 包名
+    local env dir
+    env="$(apm_pkg_root "$1")/files/ace-env"
+    [ -d "$env" ] || return 0
+    for dir in media mnt data home host dev proc sys run tmp \
+               usr/local/share usr/local/share/icons \
+               usr/local/share/fonts usr/local/share/themes; do
+        [ -d "$env/$dir" ] && continue
+        mkdir -p -- "$env/$dir" 2>/dev/null || true
+    done
+    [ -d "$env/tmp" ] && chmod 1777 "$env/tmp" 2>/dev/null
+    return 0
+}
+
 apm_base_init() { # 包名
     local pkg="$1"
     local init tarxz
@@ -271,13 +288,6 @@ _apm_remove_obsolete_files() { # 包名 新文件清单
         rm -f -- "${APM_ROOT}${f}" 2>/dev/null || true
     done < "$old_list"
     rm -f -- "$old_list" "$other"
-    return 0
-}
-
-# 清理包目录里的空目录
-_apm_prune_empty_dirs() { # 包目录
-    [ -d "$1" ] || return 0
-    find "$1" -depth -type d -empty -delete 2>/dev/null || true
     return 0
 }
 
@@ -358,10 +368,8 @@ apm_install_deb() {
             rm -rf -- "$staging" "$listfile"
             return 1
         fi
+        apm_base_ensure_dirs "$pkg"
     fi
-
-    # 清理包目录内因升级残留的空目录
-    [ "$mode" = "upgrade" ] && _apm_prune_empty_dirs "$(apm_pkg_root "$pkg")"
 
     local sha=""
     sha="$(sha256sum "$deb" | cut -d' ' -f1)"

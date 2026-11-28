@@ -92,11 +92,11 @@ NUR 仓库中的示例：
 
 {
   amber-pm = pkgs.callPackage ./pkgs/amber-pm {
-    version = "2.0.1";
+    version = "2.0.2";
     src = pkgs.fetchFromGitHub {
       owner = "amber-ce";
       repo = "amber-pm";
-      rev = "v2.0.1";
+      rev = "v2.0.2";
       hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
     };
   };
