@@ -574,5 +574,60 @@ run_apm update >/dev/null
 out="$(run_apm install -y broken-dep)"
 assert_contains "无法满足依赖时给出明确错误" "$out" "无法满足依赖"
 
+# ===========================================================================
+# 13. 多版本索引：版本顺序任意，候选及下载字段必须来自同一最新 stanza
+# ===========================================================================
+MULTI="$WORK/multi-root"
+mkdir -p "$MULTI/var/lib/apm/apm-conf/lists"
+cat > "$MULTI/var/lib/apm/apm-conf/lists/Packages" <<'EOF'
+Package: multi-version
+Version: 1.9
+Architecture: all
+Depends: dep-old
+Filename: ./pool/old.deb
+Size: 10
+SHA256: old-hash
+Description: old candidate
+
+Package: multi-version
+Version: 1:1.0-1
+Architecture: all
+Depends: dep-new
+Filename: ./pool/new.deb
+Size: 30
+SHA256: new-hash
+Description: newest candidate
+
+Package: multi-version
+Version: 1.10
+Architecture: all
+Depends: dep-middle
+Filename: ./pool/middle.deb
+Size: 20
+SHA256: middle-hash
+Description: middle candidate
+EOF
+multi_query() {
+    env APM_ROOT="$MULTI" APM_REPO_URL=https://repo.example.test \
+        APM_LANG=en APM_NO_TRIGGERS=1 bash "$APM_MAIN" "$@" 2>&1
+}
+assert_contains "候选按 Debian epoch 比较而非索引顺序" "$(multi_query policy multi-version)" "1:1.0-1"
+out="$(multi_query show multi-version)"
+assert_contains "show 来自最新候选版本" "$out" "Version: 1:1.0-1"
+assert_contains "show 描述与版本一致" "$out" "Description: newest candidate"
+assert_contains "下载 URL、文件名及大小属于同一最新版本" \
+    "$(multi_query download --print-uris multi-version)" \
+    "'https://repo.example.test/pool/new.deb' ./new.deb 30"
+out="$(multi_query depends multi-version)"
+assert_contains "依赖来自最新候选" "$out" "dep-new"
+assert_not_contains "不混入旧候选依赖" "$out" "dep-old"
+assert_contains "列表使用同一最新候选" "$(multi_query list --all)" "1:1.0-1"
+out="$(APM_ROOT="$MULTI" bash -c '
+    source "$1/src/usr/libexec/apm/apm-lib.sh"
+    source "$1/src/usr/libexec/apm/apm-repo.sh"
+    apm_repo_sha256 multi-version
+' -- "$REPO_ROOT")"
+assert_eq "校验哈希来自最新候选" "new-hash" "$out"
+
 printf '\n通过 %d 项，失败 %d 项\n' "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ]
